@@ -3,7 +3,7 @@
 > **Finde heraus, was du sagst**
 
 [![License: Source-Available](https://img.shields.io/badge/License-Source--Available-lightgrey.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg)][releases]
+[![Version](https://img.shields.io/badge/version-1.7.1-blue.svg)][releases]
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)][releases]
 [![App Store Free](https://img.shields.io/badge/App%20Store-Free-blue?logo=apple)](https://apps.apple.com/de/app/hablar%C3%A1/id6758584671)
 [![App Store Pro](https://img.shields.io/badge/App%20Store-Pro-blue?logo=apple)](https://apps.apple.com/app/hablara-pro/id6761668056)
@@ -996,7 +996,7 @@ Source-Available – alle Rechte vorbehalten. Siehe [LICENSE](LICENSE) für Deta
 
 ---
 
-**Autor:** Marc Allgeier | **Version:** 1.7.0
+**Autor:** Marc Allgeier | **Version:** 1.7.1
 
 ---
 
