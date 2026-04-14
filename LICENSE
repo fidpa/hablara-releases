@@ -1,0 +1,29 @@
+Copyright (c) 2026 Marc Allgeier. All rights reserved.
+
+SOURCE-AVAILABLE LICENSE
+
+This software and its source code ("Software") are made available for viewing
+purposes only. No license or other rights are granted except as explicitly
+stated below.
+
+PERMITTED:
+- Viewing and studying the source code for private, non-commercial purposes
+- Forking the repository on GitHub solely for the purpose of submitting
+  pull requests or for private reference
+
+NOT PERMITTED without prior written permission from the copyright holder:
+- Using, copying, modifying, or distributing the Software or any part thereof
+- Using the Software or any part thereof in commercial products or services
+- Deploying the Software or any derivative work for public or internal
+  organizational use
+- Sublicensing or selling the Software or any part thereof
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+For licensing inquiries: github.com/fidpa
