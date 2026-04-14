@@ -1,0 +1,224 @@
+# Datenschutzerklärung / Privacy Policy
+
+**Hablará**
+
+*Letzte Aktualisierung: 4. Februar 2026*
+
+---
+
+## Deutsch
+
+### 1. Verantwortlicher
+
+Marc Allgeier
+E-Mail: marc@hablara.de
+GitHub: https://github.com/fidpa/hablara-releases
+
+### 2. Überblick
+
+Hablará ist eine Desktop-Anwendung für macOS, Windows und Linux, die Sprachaufnahmen transkribiert und mit KI-gestützter Analyse anreichert. **Datenschutz steht im Mittelpunkt:** Die Verarbeitung erfolgt standardmäßig lokal auf deinem Computer.
+
+### 3. Welche Daten werden verarbeitet?
+
+#### 3.1 Sprachaufnahmen (Audio)
+
+| Aspekt | Details |
+|--------|---------|
+| **Was** | Mikrofonaufnahmen während der Nutzung |
+| **Wo verarbeitet** | Lokal auf deinem Computer |
+| **Wo gespeichert** | macOS App Store: `~/Documents/Hablara/recordings/` · macOS Direct: `~/Library/Application Support/Hablara/recordings/` · Linux: `~/.local/share/hablara/recordings/` · Windows: `%LOCALAPPDATA%\Hablara\recordings\` |
+| **Wie lange** | Bis du sie manuell löschst |
+| **An Dritte gesendet** | ❌ Nein (niemals) |
+
+#### 3.2 Transkripte (Text)
+
+| Aspekt | Details |
+|--------|---------|
+| **Was** | Textausgabe der Spracherkennung |
+| **Wo verarbeitet** | Lokal (Whisper) oder Cloud (optional) |
+| **Wo gespeichert** | Lokal auf deinem Computer |
+| **An Dritte gesendet** | ⚠️ Nur bei Cloud-LLM (siehe 4.2) |
+
+#### 3.3 API-Schlüssel
+
+| Aspekt | Details |
+|--------|---------|
+| **Was** | OpenAI/Anthropic API Keys (optional) |
+| **Wo gespeichert** | macOS: Keychain · Windows: Credential Manager · Linux: Secret Service API (verschlüsselt) |
+| **An Dritte gesendet** | ❌ Nein |
+
+### 4. Datenverarbeitung
+
+#### 4.1 Lokale Verarbeitung (Standard)
+
+Standardmäßig werden alle Daten **ausschließlich lokal** verarbeitet:
+
+- **Spracherkennung:** whisper.cpp (läuft auf deinem Computer)
+- **KI-Analyse:** Ollama (läuft auf deinem Computer)
+- **Speicherung:** Lokaler Ordner, keine Cloud
+
+**Keine Daten verlassen deinen Computer**, solange du keine Cloud-Dienste aktivierst.
+
+#### 4.2 Cloud-Verarbeitung (Optional)
+
+Wenn du in den Einstellungen einen Cloud-LLM-Anbieter wählst:
+
+| Anbieter | Was wird gesendet | Datenschutz |
+|----------|-------------------|-------------|
+| **OpenAI** | Transkript-Text (NICHT Audio) | [OpenAI Privacy](https://openai.com/privacy) |
+| **Anthropic** | Transkript-Text (NICHT Audio) | [Anthropic Privacy](https://www.anthropic.com/privacy) |
+
+**Wichtig:**
+- Du musst der Cloud-Nutzung explizit zustimmen
+- Audio-Dateien werden **niemals** an Cloud-Dienste gesendet
+- Du kannst jederzeit zu lokaler Verarbeitung zurückwechseln
+
+### 5. Deine Rechte (DSGVO Art. 15-22)
+
+Du hast folgende Rechte:
+
+| Recht | Wie ausüben |
+|-------|-------------|
+| **Auskunft** | Alle Daten liegen lokal (macOS App Store: `~/Documents/Hablara/` · macOS Direct: `~/Library/Application Support/Hablara/` · Linux: `~/.local/share/hablara/` · Windows: `%LOCALAPPDATA%\Hablara\`) |
+| **Löschung** | Einstellungen → Speicher → "Alle Aufnahmen löschen" |
+| **Widerspruch** | Cloud-LLM in Einstellungen deaktivieren |
+| **Datenportabilität** | Aufnahmen als WAV + JSON exportierbar |
+
+### 6. Keine Tracking, Keine Werbung
+
+Hablará:
+- ❌ Sammelt keine Nutzungsstatistiken
+- ❌ Zeigt keine Werbung
+- ❌ Verwendet keine Cookies
+- ❌ Teilt keine Daten mit Werbepartnern
+- ❌ Erstellt keine Nutzerprofile
+
+### 7. Datensicherheit
+
+| Maßnahme | Details |
+|----------|---------|
+| **API-Keys** | Verschlüsselt (macOS: Keychain · Windows: Credential Manager) |
+| **Netzwerk** | HTTPS für alle Cloud-Verbindungen |
+| **Lokale Daten** | Unverschlüsselt (dein Computer, deine Verantwortung) |
+
+### 8. Änderungen
+
+Bei wesentlichen Änderungen dieser Datenschutzerklärung informieren wir dich über die App oder GitHub.
+
+### 9. Kontakt
+
+Bei Fragen zum Datenschutz:
+- E-Mail: marc@hablara.de
+- GitHub Issues: https://github.com/fidpa/hablara-releases/issues
+
+---
+
+## English
+
+### 1. Data Controller
+
+Marc Allgeier
+Email: marc@hablara.de
+GitHub: https://github.com/fidpa/hablara-releases
+
+### 2. Overview
+
+Hablará is a desktop application for macOS, Windows and Linux that transcribes voice recordings and enriches them with AI-powered analysis. **Privacy is core:** Processing happens locally on your computer by default.
+
+### 3. What Data is Processed?
+
+#### 3.1 Voice Recordings (Audio)
+
+| Aspect | Details |
+|--------|---------|
+| **What** | Microphone recordings during use |
+| **Where processed** | Locally on your computer |
+| **Where stored** | macOS App Store: `~/Documents/Hablara/recordings/` · macOS Direct: `~/Library/Application Support/Hablara/recordings/` · Linux: `~/.local/share/hablara/recordings/` · Windows: `%LOCALAPPDATA%\Hablara\recordings\` |
+| **How long** | Until you manually delete them |
+| **Sent to third parties** | ❌ No (never) |
+
+#### 3.2 Transcripts (Text)
+
+| Aspect | Details |
+|--------|---------|
+| **What** | Text output from speech recognition |
+| **Where processed** | Locally (Whisper) or Cloud (optional) |
+| **Where stored** | Locally on your computer |
+| **Sent to third parties** | ⚠️ Only with Cloud LLM (see 4.2) |
+
+#### 3.3 API Keys
+
+| Aspect | Details |
+|--------|---------|
+| **What** | OpenAI/Anthropic API keys (optional) |
+| **Where stored** | macOS: Keychain · Windows: Credential Manager · Linux: Secret Service API (encrypted) |
+| **Sent to third parties** | ❌ No |
+
+### 4. Data Processing
+
+#### 4.1 Local Processing (Default)
+
+By default, all data is processed **exclusively locally**:
+
+- **Speech recognition:** whisper.cpp (runs on your computer)
+- **AI analysis:** Ollama (runs on your computer)
+- **Storage:** Local folder, no cloud
+
+**No data leaves your computer** unless you enable cloud services.
+
+#### 4.2 Cloud Processing (Optional)
+
+If you select a cloud LLM provider in settings:
+
+| Provider | What is sent | Privacy Policy |
+|----------|--------------|----------------|
+| **OpenAI** | Transcript text (NOT audio) | [OpenAI Privacy](https://openai.com/privacy) |
+| **Anthropic** | Transcript text (NOT audio) | [Anthropic Privacy](https://www.anthropic.com/privacy) |
+
+**Important:**
+- You must explicitly consent to cloud usage
+- Audio files are **never** sent to cloud services
+- You can switch back to local processing anytime
+
+### 5. Your Rights (GDPR Art. 15-22)
+
+You have the following rights:
+
+| Right | How to exercise |
+|-------|-----------------|
+| **Access** | All data is stored locally (macOS App Store: `~/Documents/Hablara/` · macOS Direct: `~/Library/Application Support/Hablara/` · Linux: `~/.local/share/hablara/` · Windows: `%LOCALAPPDATA%\Hablara\`) |
+| **Deletion** | Settings → Storage → "Delete all recordings" |
+| **Objection** | Disable Cloud LLM in settings |
+| **Portability** | Recordings exportable as WAV + JSON |
+
+### 6. No Tracking, No Ads
+
+Hablará:
+- ❌ Does not collect usage statistics
+- ❌ Does not show advertisements
+- ❌ Does not use cookies
+- ❌ Does not share data with advertising partners
+- ❌ Does not create user profiles
+
+### 7. Data Security
+
+| Measure | Details |
+|---------|---------|
+| **API Keys** | Encrypted (macOS: Keychain · Windows: Credential Manager) |
+| **Network** | HTTPS for all cloud connections |
+| **Local Data** | Unencrypted (your computer, your responsibility) |
+
+### 8. Changes
+
+We will inform you of material changes to this privacy policy via the app or GitHub.
+
+### 9. Contact
+
+For privacy questions:
+- Email: marc@hablara.de
+- GitHub Issues: https://github.com/fidpa/hablara-releases/issues
+
+---
+
+**Version:** 1.1.0
+**Effective Date:** February 4, 2026
