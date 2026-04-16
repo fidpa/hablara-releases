@@ -3,7 +3,7 @@
 #
 # Hablará - Ollama Setup Script for macOS
 #
-# Usage: curl -fsSL https://raw.githubusercontent.com/fidpa/hablara/main/scripts/setup-ollama-mac.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/fidpa/hablara-releases/main/scripts/setup-ollama-mac.sh | bash
 #        ./setup-ollama-mac.sh --model 3b
 #        ./setup-ollama-mac.sh --diagnose
 #
@@ -4627,7 +4627,7 @@ create_custom_model() (
     # KEIN SYSTEM-Prompt: Ollama 0.18.0 Constrained-Decoding-Bug bei qwen3-Modellen —
     # SYSTEM + format:"json" korrumpiert JSON-Output (Token-Alignment-Verschiebung).
     # Alle Instruktionen kommen via Per-Request-Prompts.
-    # Referenz: docs-dev/reference/benchmarks/JSON_DE.md
+    # Referenz: docs/reference/benchmarks/JSON_DE.md
     cat > "${modelfile}" <<EOF
 FROM ${MODEL_NAME}
 

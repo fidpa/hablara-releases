@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # AUTO-GENERATED — Do not edit. Edit scripts/i18n/ then run: pnpm run build:setup-scripts
 <#
 .SYNOPSIS
@@ -3974,7 +3974,7 @@ function New-CustomModel {
         # KEIN SYSTEM-Prompt: Ollama 0.18.0 Constrained-Decoding-Bug bei qwen3-Modellen —
         # SYSTEM + format:"json" korrumpiert JSON-Output (Token-Alignment-Verschiebung).
         # Alle Instruktionen kommen via Per-Request-Prompts.
-        # Referenz: docs-dev/reference/benchmarks/JSON_DE.md
+        # Referenz: docs/reference/benchmarks/JSON_DE.md
         Write-Info $script:Msg.UsingDefaultConf
         $modelfileContent = "FROM $($script:ModelName)`n`n" + @'
 PARAMETER num_ctx 8192
