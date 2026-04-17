@@ -246,6 +246,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install timeout after 10 minutes'
             $script:Msg.WingetFailed       = 'winget installation failed: {0}'
             $script:Msg.OllamaInstalled    = 'Ollama installed via winget'
+            $script:Msg.WaitForAutoStart   = 'Waiting for Ollama app auto-start...'
             $script:Msg.RebootRequired     = 'A computer restart may be required'
             $script:Msg.OllamaPathError    = 'Ollama installed but CLI not in PATH. Open a new terminal or check PATH.'
             $script:Msg.ServerStartWarn    = 'Server start failed - start manually: ollama serve'
@@ -484,6 +485,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install superó el tiempo límite de 10 minutos'
             $script:Msg.WingetFailed       = 'Instalación con winget fallida: {0}'
             $script:Msg.OllamaInstalled    = 'Ollama instalado vía winget'
+            $script:Msg.WaitForAutoStart   = 'Esperando el inicio automático de la app Ollama...'
             $script:Msg.RebootRequired     = 'Es posible que se requiera reiniciar el equipo'
             $script:Msg.OllamaPathError    = 'Ollama instalado, pero CLI no está en PATH. Abre un nuevo terminal o comprueba PATH.'
             $script:Msg.ServerStartWarn    = 'Inicio del servidor fallido - inicia manualmente: ollama serve'
@@ -722,6 +724,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install a dépassé le délai de 10 minutes'
             $script:Msg.WingetFailed       = "Échec de l'installation via winget : {0}"
             $script:Msg.OllamaInstalled    = 'Ollama installé via winget'
+            $script:Msg.WaitForAutoStart   = "Attente du démarrage automatique de l'app Ollama..."
             $script:Msg.RebootRequired     = "Un redémarrage de l'ordinateur peut être nécessaire"
             $script:Msg.OllamaPathError    = 'Ollama installé, mais CLI introuvable dans le PATH. Ouvrez un nouveau terminal ou vérifiez le PATH.'
             $script:Msg.ServerStartWarn    = 'Échec du démarrage du serveur - démarrer manuellement : ollama serve'
@@ -960,6 +963,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install ha superato il tempo massimo di 10 minuti'
             $script:Msg.WingetFailed       = 'Installazione con winget fallita: {0}'
             $script:Msg.OllamaInstalled    = 'Ollama installato via winget'
+            $script:Msg.WaitForAutoStart   = "Attesa dell'avvio automatico dell'app Ollama..."
             $script:Msg.RebootRequired     = 'Potrebbe essere necessario riavviare il computer'
             $script:Msg.OllamaPathError    = 'Ollama installato, ma CLI non è nel PATH. Aprire un nuovo terminale o verificare il PATH.'
             $script:Msg.ServerStartWarn    = 'Avvio del server fallito - avviare manualmente: ollama serve'
@@ -1198,6 +1202,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install time-out na 10 minuten'
             $script:Msg.WingetFailed       = 'winget-installatie mislukt: {0}'
             $script:Msg.OllamaInstalled    = 'Ollama geïnstalleerd via winget'
+            $script:Msg.WaitForAutoStart   = 'Wachten op automatische start van de Ollama-app...'
             $script:Msg.RebootRequired     = 'Mogelijk is een herstart van de computer vereist'
             $script:Msg.OllamaPathError    = 'Ollama geïnstalleerd maar CLI niet in PATH. Open een nieuwe terminal of controleer PATH.'
             $script:Msg.ServerStartWarn    = 'Server starten mislukt - handmatig starten: ollama serve'
@@ -1436,6 +1441,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install atingiu o tempo limite de 10 minutos'
             $script:Msg.WingetFailed       = 'winget falhou: {0}'
             $script:Msg.OllamaInstalled    = 'Ollama instalado via winget'
+            $script:Msg.WaitForAutoStart   = 'Aguardando o início automático da app Ollama...'
             $script:Msg.RebootRequired     = 'Pode ser necessário reiniciar o computador'
             $script:Msg.OllamaPathError    = 'Ollama instalado mas CLI não está no PATH. Abra um novo terminal ou verifique o PATH.'
             $script:Msg.ServerStartWarn    = 'Falha ao iniciar o servidor - iniciar manualmente: ollama serve'
@@ -1674,6 +1680,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install przekroczył limit czasu 10 minut'
             $script:Msg.WingetFailed       = 'winget nie powiódł się: {0}'
             $script:Msg.OllamaInstalled    = 'Ollama zainstalowane przez winget'
+            $script:Msg.WaitForAutoStart   = 'Oczekiwanie na automatyczne uruchomienie aplikacji Ollama...'
             $script:Msg.RebootRequired     = 'Może być konieczne ponowne uruchomienie komputera'
             $script:Msg.OllamaPathError    = 'Ollama zainstalowane, ale CLI nie jest w PATH. Otwórz nowy terminal lub sprawdź PATH.'
             $script:Msg.ServerStartWarn    = 'Nie udało się uruchomić serwera — uruchom ręcznie: ollama serve'
@@ -1912,6 +1919,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install timeout efter 10 minuter'
             $script:Msg.WingetFailed       = 'winget-installation misslyckades: {0}'
             $script:Msg.OllamaInstalled    = 'Ollama installerat via winget'
+            $script:Msg.WaitForAutoStart   = 'Väntar på automatisk start av Ollama-appen...'
             $script:Msg.RebootRequired     = 'En omstart av datorn kan krävas'
             $script:Msg.OllamaPathError    = 'Ollama installerat men CLI inte i PATH. Öppna en ny terminal eller kontrollera PATH.'
             $script:Msg.ServerStartWarn    = 'Serverstart misslyckades – starta manuellt: ollama serve'
@@ -2150,6 +2158,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install timeout efter 10 minutter'
             $script:Msg.WingetFailed       = 'winget-installation mislykkedes: {0}'
             $script:Msg.OllamaInstalled    = 'Ollama installeret via winget'
+            $script:Msg.WaitForAutoStart   = 'Venter på automatisk start af Ollama-appen...'
             $script:Msg.RebootRequired     = 'En genstart af computeren kan være nødvendig'
             $script:Msg.OllamaPathError    = 'Ollama installeret, men CLI er ikke i PATH. Åbn en ny terminal eller kontrollér PATH.'
             $script:Msg.ServerStartWarn    = 'Serverstart mislykkedes – start manuelt: ollama serve'
@@ -2388,6 +2397,7 @@ function Initialize-Messages {
             $script:Msg.WingetTimeout      = 'winget install Timeout nach 10 Minuten'
             $script:Msg.WingetFailed       = 'winget Installation fehlgeschlagen: {0}'
             $script:Msg.OllamaInstalled    = 'Ollama via winget installiert'
+            $script:Msg.WaitForAutoStart   = 'Warte auf automatischen Start der Ollama-App...'
             $script:Msg.RebootRequired     = 'Ein Neustart des Computers kann erforderlich sein'
             $script:Msg.OllamaPathError    = 'Ollama installiert, aber CLI nicht im PATH. Neues Terminal öffnen oder PATH prüfen.'
             $script:Msg.ServerStartWarn    = 'Server-Start fehlgeschlagen - manuell starten: ollama serve'
@@ -3766,28 +3776,43 @@ function Start-OllamaServer {
         return $true
     } catch {}
 
-    # Port might be in use by starting server - delegate to Wait-OllamaServer (30s)
+    # Port might be in use by starting server - delegate to Wait-OllamaServer (60s)
     if (Test-PortInUse -Port 11434) {
         Write-Info $script:Msg.PortBusy
-        if (Wait-OllamaServer) { return $true }
+        if (Wait-OllamaServer -TimeoutSeconds 60) { return $true }
         Write-Warning $script:Msg.PortBusyWarn
         return $false
     }
 
-    # Try Ollama app (winget/installer installs "ollama app.exe" in LOCALAPPDATA)
-    $ollamaApp = Join-Path $env:LOCALAPPDATA 'Ollama\ollama app.exe'
-    if (Test-Path $ollamaApp) {
+    # Try Ollama Desktop App. Pfade analog Find-OllamaInstallation —
+    # winget installiert seit Ende 2024 standardmäßig nach %LOCALAPPDATA%\Programs\Ollama\.
+    $ollamaAppPaths = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama app.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Ollama\ollama app.exe'),
+        (Join-Path $env:ProgramFiles 'Ollama\ollama app.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Ollama\ollama app.exe')
+    )
+    $ollamaApp = $ollamaAppPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($ollamaApp) {
         Write-Info $script:Msg.OllamaAppStart
         Start-Process -FilePath $ollamaApp -WindowStyle Hidden
-        $serverReady = Wait-OllamaServer
-        if ($serverReady) { return $true }
+        # Desktop-App braucht länger als `ollama serve` bis API auf 11434 antwortet.
+        if (Wait-OllamaServer -TimeoutSeconds 60) { return $true }
     }
 
-    # Fallback: ollama serve
+    # Fallback: ollama serve. Vorher final prüfen, ob Desktop-App in Zwischenzeit
+    # Port belegt hat — dann nicht parallel starten (verhindert "address in use" Race).
+    if (Test-PortInUse -Port 11434) {
+        Write-Info $script:Msg.PortBusy
+        if (Wait-OllamaServer -TimeoutSeconds 30) { return $true }
+        Write-Warning $script:Msg.PortBusyWarn
+        return $false
+    }
+
     if (Test-CommandExists 'ollama') {
         Write-Info $script:Msg.OllamaServeStart
         $process = Start-Process -FilePath 'ollama' -ArgumentList 'serve' -WindowStyle Hidden -PassThru
-        $serverReady = Wait-OllamaServer
+        $serverReady = Wait-OllamaServer -TimeoutSeconds 30
 
         if ($serverReady -and -not $process.HasExited) { return $true }
         if ($process.HasExited) { Write-Err ($script:Msg.OllamaProcessExit -f $process.ExitCode); return $false }
@@ -3870,10 +3895,17 @@ function Install-Ollama {
                     exit 1
                 }
 
+                # Ollama-Installer startet die Desktop-App automatisch nach Install.
+                # Kurz warten + Quick-Probe, damit Start-OllamaServer den laufenden
+                # Server erkennt statt parallel `ollama serve` zu starten (Port-Race).
+                Write-Info $script:Msg.WaitForAutoStart
+                Start-Sleep -Seconds 5
+
                 if (-not (Start-OllamaServer)) {
-                    Write-Warning $script:Msg.ServerStartWarn
+                    Write-Err $script:Msg.ServerStartFailed
+                    Write-Info $script:Msg.ServerStartHint
+                    exit 1
                 }
-                if (-not (Wait-OllamaServer)) { exit 1 }
                 return
             }
         } catch { Write-Warning ($script:Msg.WingetFailed -f $_) }
