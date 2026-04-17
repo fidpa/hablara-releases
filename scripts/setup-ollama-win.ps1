@@ -2952,11 +2952,14 @@ function Invoke-WithTimeout {
             if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
         }) -join ' '
         $psi.UseShellExecute = $false
+        $psi.RedirectStandardInput = $true
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.CreateNoWindow = $true
 
         $process = [System.Diagnostics.Process]::Start($psi)
+        # stdin sofort schließen → CLIs (ollama, winget) blockieren nicht auf stdin-Read
+        try { $process.StandardInput.Close() } catch {}
 
         # Read stdout/stderr asynchronously to prevent deadlocks on large output
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
@@ -3001,11 +3004,14 @@ function Invoke-PullWithHeartbeat {
         $psi.FileName = 'ollama'
         $psi.Arguments = "pull $ModelName"
         $psi.UseShellExecute = $false
+        $psi.RedirectStandardInput = $true
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.CreateNoWindow = $true
 
         $process = [System.Diagnostics.Process]::Start($psi)
+        # stdin sofort schließen → ollama blockiert nicht auf stdin-Read
+        try { $process.StandardInput.Close() } catch {}
 
         # Drain stdout asynchronously to prevent buffer deadlock
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
@@ -4076,63 +4082,72 @@ PARAMETER repeat_penalty 1.1
     $spinIdx = 0
     $createMsg = $script:Msg.CustomCreating -f $script:CustomModelName
 
+    $createProc = $null
     try {
-        $createJob = Start-Job -ScriptBlock {
-            param($cmd, $cmdArgs, $timeout, $envPath)
-            # Restore runtime PATH modifications (Start-Job runs in a new process)
-            if ($envPath) { $env:Path = $envPath }
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName = $cmd
-            $psi.Arguments = ($cmdArgs | ForEach-Object {
-                if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
-            }) -join ' '
-            $psi.UseShellExecute = $false
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError = $true
-            $proc = [System.Diagnostics.Process]::Start($psi)
-            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-            $stderrTask = $proc.StandardError.ReadToEndAsync()
-            $timedOut = -not $proc.WaitForExit($timeout * 1000)
-            if ($timedOut) { try { $proc.Kill() } catch {} }
-            $stderr = ''
-            try { $stderr = $stderrTask.GetAwaiter().GetResult() } catch {}
-            $result = @{
-                TimedOut = $timedOut
-                ExitCode = if ($timedOut) { -1 } else { $proc.ExitCode }
-                StdErr = $stderr
-            }
-            try { $proc.Dispose() } catch {}
-            $result
-        } -ArgumentList 'ollama', @('create', $script:CustomModelName, '-f', $modelfilePath), 300, $env:Path
+        # In-process Process.Start statt Start-Job:
+        # Start-Job spawnt einen neuen PowerShell-Prozess mit nicht-redirectiertem
+        # stdin → ollama detektiert das als interaktive Session und blockiert auf
+        # stdin-Read, statt das Modell zu erstellen ("ollama macht nichts").
+        # Fix: RedirectStandardInput=true + sofort Close() → ollama sieht EOF
+        # und läuft nicht-interaktiv weiter.
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'ollama'
+        $createArgs = @('create', $script:CustomModelName, '-f', $modelfilePath)
+        $psi.Arguments = ($createArgs | ForEach-Object {
+            if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+        }) -join ' '
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.CreateNoWindow = $true
 
-        while ($createJob.State -eq 'Running') {
+        $createProc = [System.Diagnostics.Process]::Start($psi)
+        # stdin sofort schließen → ollama läuft nicht-interaktiv
+        try { $createProc.StandardInput.Close() } catch {}
+
+        # Async stdout/stderr lesen (verhindert Deadlock bei grosser Ausgabe)
+        $stdoutTask = $createProc.StandardOutput.ReadToEndAsync()
+        $stderrTask = $createProc.StandardError.ReadToEndAsync()
+
+        $timeoutMs = 300 * 1000
+        $startTime = [System.Environment]::TickCount
+        $timedOut = $false
+
+        while (-not $createProc.HasExited) {
             if ($isInteractive) {
                 $c = $spinChars[$spinIdx % 10]
                 Write-Host "`r    $c $createMsg" -NoNewline
             }
             $spinIdx++
-            Start-Sleep -Milliseconds 100
+            if ($createProc.WaitForExit(100)) { break }
+            if (([System.Environment]::TickCount - $startTime) -ge $timeoutMs) {
+                $timedOut = $true
+                try { $createProc.Kill() } catch {}
+                break
+            }
         }
         if ($isInteractive) { Write-Host "`r$(' ' * ($createMsg.Length + 8))`r" -NoNewline }
 
-        $createResult = Receive-Job -Job $createJob -Wait
-        Remove-Job -Job $createJob -Force
+        $stderrText = ''
+        try { $stderrText = $stderrTask.GetAwaiter().GetResult() } catch {}
 
-        if ($createResult.TimedOut) {
+        if ($timedOut) {
             Write-Warning $script:Msg.CustomCreateTO
-            if ($createResult.StdErr -and $createResult.StdErr.Trim()) {
+            if ($stderrText -and $stderrText.Trim()) {
                 Write-Info $script:Msg.DownloadLastError
-                foreach ($line in ($createResult.StdErr -split "`n")) {
+                foreach ($line in ($stderrText -split "`n")) {
                     if ($line.Trim()) { Write-Host "      $($line.TrimEnd())" -ForegroundColor DarkGray }
                 }
             }
             return
         }
-        if ($createResult.ExitCode -ne 0) {
+        $exitCode = $createProc.ExitCode
+        if ($exitCode -ne 0) {
             Write-Warning ($script:Msg.CustomCreateFail -f $actionVerb)
-            if ($createResult.StdErr -and $createResult.StdErr.Trim()) {
+            if ($stderrText -and $stderrText.Trim()) {
                 Write-Info $script:Msg.DownloadLastError
-                foreach ($line in ($createResult.StdErr -split "`n")) {
+                foreach ($line in ($stderrText -split "`n")) {
                     if ($line.Trim()) { Write-Host "      $($line.TrimEnd())" -ForegroundColor DarkGray }
                 }
             }
@@ -4140,6 +4155,7 @@ PARAMETER repeat_penalty 1.1
         }
         Write-Success ($script:Msg.CustomDone -f $actionVerb, $script:CustomModelName)
     } finally {
+        if ($null -ne $createProc) { try { $createProc.Dispose() } catch {} }
         if (Test-Path $modelfilePath) { Remove-Item -LiteralPath $modelfilePath -Force -ErrorAction SilentlyContinue }
     }
 }
