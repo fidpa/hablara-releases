@@ -4063,16 +4063,11 @@ PARAMETER repeat_penalty 1.1
     # Write without BOM (Ollama can't parse BOM)
     [System.IO.File]::WriteAllText($modelfilePath, $modelfileContent, [System.Text.UTF8Encoding]::new($false))
 
-    # Restrictive permissions to prevent race condition attacks
-    try {
-        $acl = Get-Acl $modelfilePath
-        $acl.SetAccessRuleProtection($true, $false)
-        $acl.Access | ForEach-Object { $acl.RemoveAccessRule($_) } | Out-Null
-        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($currentUser, 'FullControl', 'Allow')
-        $acl.AddAccessRule($rule)
-        Set-Acl -Path $modelfilePath -AclObject $acl -ErrorAction Stop
-    } catch { Write-Warning ($script:Msg.PermsWarn -f $_) }
+    # Default %TEMP%-ACLs sind bereits user-only — keine weitere Härtung.
+    # Aggressive Set-Acl (alle Inheritance entfernen + nur current-user Zugriff)
+    # blockierte Ollama Desktop App auf Windows, weil sie mit leicht anderem Token
+    # läuft (UAC-Split / AppContainer / Service-Kontext) → `ollama create` hing.
+    # Race-Condition-Risiko ist theoretisch (GetRandomFileName + ms-Lebensdauer).
 
     $isInteractive = Test-InteractiveSession
     $spinChars = @([char]0x280B,[char]0x2819,[char]0x2839,[char]0x2838,
