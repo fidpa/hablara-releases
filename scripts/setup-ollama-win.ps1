@@ -67,6 +67,11 @@ $script:ModelName = ''
 $script:CustomModelName = ''
 $script:ModelSize = ''
 $script:RequiredDiskSpaceGB = 0
+# Set-StrictMode erfordert Vorinitialisierung. Show-HardwareRecommendation
+# wird übersprungen wenn Get-MemoryBandwidthGbps 0 zurückgibt (unbekannter
+# Prozessor) → Show-ModelMenu/Get-PromptText würden sonst auf eine
+# nicht-gesetzte Variable zugreifen und strict-mode failen.
+$script:RecommendedModel = ''
 
 $ModelConfigs = @{
     '1.5b'    = @{ Name = 'qwen2.5:1.5b'; Size = '~1GB';   DiskGB = 3;  RAMWarn = $false; MinRAM = 0 }
