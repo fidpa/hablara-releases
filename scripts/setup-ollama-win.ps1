@@ -3016,6 +3016,11 @@ function Invoke-PullWithHeartbeat {
         $process = Start-Process -FilePath 'ollama' -ArgumentList @('pull', $ModelName) `
             -RedirectStandardOutput $pullOut -RedirectStandardError $pullErr `
             -NoNewWindow -PassThru
+        # KRITISCH: Handle-Zugriff erzwingt Retention durch .NET. Ohne diesen
+        # Zugriff gibt .NET den OS-Handle nach Exit frei und `$process.ExitCode`
+        # liefert `$null` → `$null -eq 0` ist `$false` → scheinbarer Fehler bei
+        # erfolgreichem Pull. Siehe: stackoverflow.com/q/10262231
+        $null = $process.Handle
 
         $startTime = Get-Date
         $lastHeartbeat = $startTime
@@ -4095,12 +4100,12 @@ PARAMETER repeat_penalty 1.1
         # — Process mit gleichzeitigen async Stream-Readern terminiert PS-Host
         # mit Exit-Code 2 wenn das Event-System fehlerhaft wird. File-basierte
         # Redirects sind Win32-native und immun dagegen.
-        # WICHTIG: stdin NICHT redirecten. `ollama create` in 0.20+ erwartet
-        # eine echte Console (TUI-Progress).
         $createProc = Start-Process -FilePath 'ollama' `
             -ArgumentList @('create', $script:CustomModelName, '-f', $modelfilePath) `
             -RedirectStandardOutput $createOut -RedirectStandardError $createErr `
             -NoNewWindow -PassThru
+        # KRITISCH: Handle-Zugriff erzwingt Retention (siehe Invoke-PullWithHeartbeat).
+        $null = $createProc.Handle
 
         $timeoutMs = 300 * 1000
         $startTime = [System.Environment]::TickCount
