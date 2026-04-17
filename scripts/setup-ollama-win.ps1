@@ -3015,16 +3015,19 @@ function Invoke-PullWithHeartbeat {
         # making IsCompleted unsuitable for mid-download stall checks.
         # stderr-Zeilen werden zusätzlich gesammelt, damit bei Fehlern die echte
         # Meldung angezeigt werden kann (ollama pull schreibt Fehler nach stderr).
+        # WICHTIG: `$process.ErrorDataReceived += {...}` bricht unter
+        # `Set-StrictMode -Version Latest` (PS 5.1), weil Events keine Properties
+        # sind und Property-Read fehlschlägt. add_ErrorDataReceived(...) umgeht das.
         $startTime = Get-Date
         $stdErrLines = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
         $progress = [hashtable]::Synchronized(@{ LastTime = $startTime; StdErr = $stdErrLines })
-        $process.ErrorDataReceived += {
+        $process.add_ErrorDataReceived({
             param($s, $e)
             if ($null -ne $e.Data) {
                 $progress.LastTime = Get-Date
                 [void]$progress.StdErr.Add($e.Data)
             }
-        }
+        })
         $process.BeginErrorReadLine()
 
         $lastHeartbeat = $startTime
@@ -4092,12 +4095,20 @@ PARAMETER repeat_penalty 1.1
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError = $true
             $proc = [System.Diagnostics.Process]::Start($psi)
+            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+            $stderrTask = $proc.StandardError.ReadToEndAsync()
             $timedOut = -not $proc.WaitForExit($timeout * 1000)
             if ($timedOut) { try { $proc.Kill() } catch {} }
-            $result = @{ TimedOut = $timedOut; ExitCode = if ($timedOut) { -1 } else { $proc.ExitCode } }
+            $stderr = ''
+            try { $stderr = $stderrTask.GetAwaiter().GetResult() } catch {}
+            $result = @{
+                TimedOut = $timedOut
+                ExitCode = if ($timedOut) { -1 } else { $proc.ExitCode }
+                StdErr = $stderr
+            }
             try { $proc.Dispose() } catch {}
             $result
-        } -ArgumentList 'ollama', @('create', $script:CustomModelName, '-f', $modelfilePath), 120, $env:Path
+        } -ArgumentList 'ollama', @('create', $script:CustomModelName, '-f', $modelfilePath), 300, $env:Path
 
         while ($createJob.State -eq 'Running') {
             if ($isInteractive) {
@@ -4114,10 +4125,22 @@ PARAMETER repeat_penalty 1.1
 
         if ($createResult.TimedOut) {
             Write-Warning $script:Msg.CustomCreateTO
+            if ($createResult.StdErr -and $createResult.StdErr.Trim()) {
+                Write-Info $script:Msg.DownloadLastError
+                foreach ($line in ($createResult.StdErr -split "`n")) {
+                    if ($line.Trim()) { Write-Host "      $($line.TrimEnd())" -ForegroundColor DarkGray }
+                }
+            }
             return
         }
         if ($createResult.ExitCode -ne 0) {
             Write-Warning ($script:Msg.CustomCreateFail -f $actionVerb)
+            if ($createResult.StdErr -and $createResult.StdErr.Trim()) {
+                Write-Info $script:Msg.DownloadLastError
+                foreach ($line in ($createResult.StdErr -split "`n")) {
+                    if ($line.Trim()) { Write-Host "      $($line.TrimEnd())" -ForegroundColor DarkGray }
+                }
+            }
             return
         }
         Write-Success ($script:Msg.CustomDone -f $actionVerb, $script:CustomModelName)
