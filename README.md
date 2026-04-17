@@ -384,7 +384,7 @@ Cloud-LLM erfordert DSGVO-Einwilligung (wird beim ersten Start abgefragt)
 - Erkennung über Schlüsselwörter und Sprachmuster
 - Output: Dominanter Fokus + konkrete Schlüsselwörter + Reflexions-Hinweis
 
-**Wichtig:** Alle Features dienen der **Selbstreflexion**, nicht der klinischen Diagnostik. KI-Accuracy-Disclaimer (EU AI Act Art. 52) in Tour und About-Section. Krisenhotline: Telefonseelsorge 0800 111 0 111 (24/7, kostenlos).
+**Wichtig:** Alle Features dienen der **Selbstreflexion**, nicht der klinischen Diagnostik. KI-Accuracy-Disclaimer (EU AI Act Art. 50) in Tour und About-Section. Krisenhotline: Telefonseelsorge 0800 111 0 111 (24/7, kostenlos).
 
 **Bibelimpuls:**
 - 1–3 assoziative Bibelstellen (Schlachter 2000, Genfer Bibelgesellschaft) zum Transkript
@@ -564,7 +564,7 @@ Jetzt weiß ich, wie ich das angehen will."
 - Art. 9 Gesundheitsdaten erfordern DPIA + MDR-Zertifizierung (~50.000 EUR) – unverhältnismäßig für Selbstreflexions-Tool
 - Cloud-Transkription (Stimme = biometrische Daten i.S.d. Art. 9(1)) erfordert separate ausdrueckliche Einwilligung nach Art. 9(2)(a)
 
-**Warum KI-Accuracy-Disclaimer (EU AI Act Art. 52)?**
+**Warum KI-Accuracy-Disclaimer (EU AI Act Art. 50)?**
 - Transparenzpflicht: "KI-Ergebnisse können fehlerhaft sein"
 - 4-Stufen-Strategie: Tour, About-Section, Confidence-Tooltips, Krisenhotline
 
