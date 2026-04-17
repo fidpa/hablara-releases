@@ -270,6 +270,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Download running... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Download timeout after {0} minutes (attempt {1}/3)'
             $script:Msg.DownloadFailedW    = 'Download failed (attempt {0}/3)'
+            $script:Msg.DownloadLastError  = 'Last error message:'
             $script:Msg.DownloadRetry      = 'Next attempt in 5s...'
             $script:Msg.DownloadFailed     = 'Model download failed after 3 attempts'
             $script:Msg.DownloadManual     = 'Try manually: ollama pull {0}'
@@ -509,6 +510,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Descargando... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Tiempo límite de descarga tras {0} minutos (intento {1}/3)'
             $script:Msg.DownloadFailedW    = 'Descarga fallida (intento {0}/3)'
+            $script:Msg.DownloadLastError  = 'Último mensaje de error:'
             $script:Msg.DownloadRetry      = 'Próximo intento en 5s...'
             $script:Msg.DownloadFailed     = 'Descarga del modelo fallida tras 3 intentos'
             $script:Msg.DownloadManual     = 'Intenta manualmente: ollama pull {0}'
@@ -748,6 +750,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Téléchargement en cours... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Délai de téléchargement dépassé après {0} minutes (tentative {1}/3)'
             $script:Msg.DownloadFailedW    = 'Téléchargement échoué (tentative {0}/3)'
+            $script:Msg.DownloadLastError  = "Dernier message d'erreur :"
             $script:Msg.DownloadRetry      = 'Prochaine tentative dans 5s...'
             $script:Msg.DownloadFailed     = 'Échec du téléchargement du modèle après 3 tentatives'
             $script:Msg.DownloadManual     = 'Essayez manuellement : ollama pull {0}'
@@ -987,6 +990,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Scaricamento in corso... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Tempo massimo di scaricamento superato dopo {0} minuti (tentativo {1}/3)'
             $script:Msg.DownloadFailedW    = 'Scaricamento fallito (tentativo {0}/3)'
+            $script:Msg.DownloadLastError  = 'Ultimo messaggio di errore:'
             $script:Msg.DownloadRetry      = 'Prossimo tentativo tra 5s...'
             $script:Msg.DownloadFailed     = 'Scaricamento del modello fallito dopo 3 tentativi'
             $script:Msg.DownloadManual     = 'Provare manualmente: ollama pull {0}'
@@ -1226,6 +1230,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Download actief... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Download time-out na {0} minuten (poging {1}/3)'
             $script:Msg.DownloadFailedW    = 'Download mislukt (poging {0}/3)'
+            $script:Msg.DownloadLastError  = 'Laatste foutmelding:'
             $script:Msg.DownloadRetry      = 'Volgende poging in 5s...'
             $script:Msg.DownloadFailed     = 'Modeldownload mislukt na 3 pogingen'
             $script:Msg.DownloadManual     = 'Handmatig proberen: ollama pull {0}'
@@ -1465,6 +1470,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Descarregamento em curso... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Tempo limite do descarregamento após {0} minutos (tentativa {1}/3)'
             $script:Msg.DownloadFailedW    = 'Descarregamento falhou (tentativa {0}/3)'
+            $script:Msg.DownloadLastError  = 'Última mensagem de erro:'
             $script:Msg.DownloadRetry      = 'Próxima tentativa em 5s...'
             $script:Msg.DownloadFailed     = 'Descarregamento do modelo falhou após 3 tentativas'
             $script:Msg.DownloadManual     = 'Tentar manualmente: ollama pull {0}'
@@ -1704,6 +1710,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Pobieranie w toku... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Przekroczono limit czasu pobierania po {0} minutach (próba {1}/3)'
             $script:Msg.DownloadFailedW    = 'Pobieranie nie powiodło się (próba {0}/3)'
+            $script:Msg.DownloadLastError  = 'Ostatni komunikat błędu:'
             $script:Msg.DownloadRetry      = 'Następna próba za 5s...'
             $script:Msg.DownloadFailed     = 'Pobieranie modelu nie powiodło się po 3 próbach'
             $script:Msg.DownloadManual     = 'Spróbuj ręcznie: ollama pull {0}'
@@ -1943,6 +1950,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Nedladdning pågår... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Nedladdningstimeout efter {0} minuter (försök {1}/3)'
             $script:Msg.DownloadFailedW    = 'Nedladdning misslyckades (försök {0}/3)'
+            $script:Msg.DownloadLastError  = 'Senaste felmeddelande:'
             $script:Msg.DownloadRetry      = 'Nästa försök om 5s...'
             $script:Msg.DownloadFailed     = 'Modellnedladdning misslyckades efter 3 försök'
             $script:Msg.DownloadManual     = 'Prova manuellt: ollama pull {0}'
@@ -2182,6 +2190,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Download i gang... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Download-timeout efter {0} minutter (forsøg {1}/3)'
             $script:Msg.DownloadFailedW    = 'Download mislykkedes (forsøg {0}/3)'
+            $script:Msg.DownloadLastError  = 'Seneste fejlmeddelelse:'
             $script:Msg.DownloadRetry      = 'Næste forsøg om 5s...'
             $script:Msg.DownloadFailed     = 'Modeldownload mislykkedes efter 3 forsøg'
             $script:Msg.DownloadManual     = 'Prøv manuelt: ollama pull {0}'
@@ -2421,6 +2430,7 @@ function Initialize-Messages {
             $script:Msg.DownloadRunning    = '  Download läuft... ({0}m {1}s)'
             $script:Msg.DownloadTimeoutW   = 'Download-Timeout nach {0} Minuten (Versuch {1}/3)'
             $script:Msg.DownloadFailedW    = 'Download fehlgeschlagen (Versuch {0}/3)'
+            $script:Msg.DownloadLastError  = 'Letzte Fehlermeldung:'
             $script:Msg.DownloadRetry      = 'Nächster Versuch in 5s...'
             $script:Msg.DownloadFailed     = 'Modell-Download fehlgeschlagen nach 3 Versuchen'
             $script:Msg.DownloadManual     = 'Manuell versuchen: ollama pull {0}'
@@ -3003,9 +3013,18 @@ function Invoke-PullWithHeartbeat {
         # Use event-based stderr reading for reliable stall detection.
         # ReadToEndAsync() only completes when the stream closes (process exits),
         # making IsCompleted unsuitable for mid-download stall checks.
+        # stderr-Zeilen werden zusätzlich gesammelt, damit bei Fehlern die echte
+        # Meldung angezeigt werden kann (ollama pull schreibt Fehler nach stderr).
         $startTime = Get-Date
-        $progress = [hashtable]::Synchronized(@{ LastTime = $startTime })
-        $process.ErrorDataReceived += { param($s, $e); if ($null -ne $e.Data) { $progress.LastTime = Get-Date } }
+        $stdErrLines = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
+        $progress = [hashtable]::Synchronized(@{ LastTime = $startTime; StdErr = $stdErrLines })
+        $process.ErrorDataReceived += {
+            param($s, $e)
+            if ($null -ne $e.Data) {
+                $progress.LastTime = Get-Date
+                [void]$progress.StdErr.Add($e.Data)
+            }
+        }
         $process.BeginErrorReadLine()
 
         $lastHeartbeat = $startTime
@@ -3044,9 +3063,10 @@ function Invoke-PullWithHeartbeat {
         }
 
         $exitCode = $process.ExitCode
-        return @{ Success = ($exitCode -eq 0); TimedOut = $false; Stalled = $false }
+        $lastErr = ($progress.StdErr | Select-Object -Last 5) -join "`n"
+        return @{ Success = ($exitCode -eq 0); TimedOut = $false; Stalled = $false; ExitCode = $exitCode; StdErr = $lastErr }
     } catch {
-        return @{ Success = $false; TimedOut = $false; Stalled = $false }
+        return @{ Success = $false; TimedOut = $false; Stalled = $false; ExitCode = -1; StdErr = $_.Exception.Message }
     } finally {
         if ($null -ne $process) { try { $process.CancelErrorRead(); $process.Dispose() } catch {} }
         Remove-Item -LiteralPath $pullLog -Force -ErrorAction SilentlyContinue
@@ -3946,6 +3966,12 @@ function Install-BaseModel {
             Write-Warning ($script:Msg.DownloadTimeoutW -f [math]::Floor($pullTimeout / 60), $attempt)
         } else {
             Write-Warning ($script:Msg.DownloadFailedW -f $attempt)
+            if ($pullResult.StdErr) {
+                Write-Info $script:Msg.DownloadLastError
+                foreach ($line in ($pullResult.StdErr -split "`n")) {
+                    if ($line.Trim()) { Write-Host "      $line" -ForegroundColor DarkGray }
+                }
+            }
         }
         if ($attempt -lt 3) {
             Write-Info $script:Msg.DownloadRetry
