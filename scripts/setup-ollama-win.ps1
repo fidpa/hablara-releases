@@ -2952,14 +2952,11 @@ function Invoke-WithTimeout {
             if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
         }) -join ' '
         $psi.UseShellExecute = $false
-        $psi.RedirectStandardInput = $true
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.CreateNoWindow = $true
 
         $process = [System.Diagnostics.Process]::Start($psi)
-        # stdin sofort schließen → CLIs (ollama, winget) blockieren nicht auf stdin-Read
-        try { $process.StandardInput.Close() } catch {}
 
         # Read stdout/stderr asynchronously to prevent deadlocks on large output
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
@@ -3004,14 +3001,11 @@ function Invoke-PullWithHeartbeat {
         $psi.FileName = 'ollama'
         $psi.Arguments = "pull $ModelName"
         $psi.UseShellExecute = $false
-        $psi.RedirectStandardInput = $true
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.CreateNoWindow = $true
 
         $process = [System.Diagnostics.Process]::Start($psi)
-        # stdin sofort schließen → ollama blockiert nicht auf stdin-Read
-        try { $process.StandardInput.Close() } catch {}
 
         # Drain stdout asynchronously to prevent buffer deadlock
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
@@ -4085,11 +4079,14 @@ PARAMETER repeat_penalty 1.1
     $createProc = $null
     try {
         # In-process Process.Start statt Start-Job:
-        # Start-Job spawnt einen neuen PowerShell-Prozess mit nicht-redirectiertem
-        # stdin → ollama detektiert das als interaktive Session und blockiert auf
-        # stdin-Read, statt das Modell zu erstellen ("ollama macht nichts").
-        # Fix: RedirectStandardInput=true + sofort Close() → ollama sieht EOF
-        # und läuft nicht-interaktiv weiter.
+        # Start-Job spawnt einen neuen PowerShell-Prozess OHNE Console; der
+        # ollama-Subprozess bekommt dort kein brauchbares stdin/stdout und hing
+        # 300s ("ollama macht nichts"). In-process Start erbt die Parent-Console
+        # natürlich — ollama sieht dieselbe stdin-TTY wie die PS-Session.
+        # WICHTIG: stdin NICHT redirecten. `ollama pull`/`create` erwarten in
+        # 0.20+ eine echte Console (TUI-Progress via ANSI-Escapes auf stderr).
+        # RedirectStandardInput + Close() lässt ollama mit ExitCode 2 sofort
+        # abbrechen, bevor der Download startet.
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = 'ollama'
         $createArgs = @('create', $script:CustomModelName, '-f', $modelfilePath)
@@ -4097,14 +4094,11 @@ PARAMETER repeat_penalty 1.1
             if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
         }) -join ' '
         $psi.UseShellExecute = $false
-        $psi.RedirectStandardInput = $true
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $psi.CreateNoWindow = $true
 
         $createProc = [System.Diagnostics.Process]::Start($psi)
-        # stdin sofort schließen → ollama läuft nicht-interaktiv
-        try { $createProc.StandardInput.Close() } catch {}
 
         # Async stdout/stderr lesen (verhindert Deadlock bei grosser Ausgabe)
         $stdoutTask = $createProc.StandardOutput.ReadToEndAsync()
