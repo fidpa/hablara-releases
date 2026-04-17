@@ -2987,6 +2987,20 @@ function Invoke-WithTimeout {
 
 # Downloads a model with heartbeat and stall detection (PowerShell equivalent of Bash _pull_with_heartbeat)
 # Returns: hashtable with Success, TimedOut, Stalled
+#
+# IMPLEMENTIERUNG (mirrors bash _pull_with_heartbeat):
+# Wir leiten stdout/stderr in zwei Logfiles um und pollen die Dateigröße für
+# Stall-Detection. KEINE async Stream-Reader, KEINE Event-Handler.
+#
+# Hintergrund:
+# - dotnet/runtime#81896: Process mit gleichzeitigem `ReadToEndAsync()` UND
+#   `BeginErrorReadLine()` blockiert ThreadPool-Threads.
+# - PowerShell#12338: `add_ErrorDataReceived` Event-Handler werfen unter
+#   bestimmten Umständen unbehandelte Exceptions im ThreadPool, was den
+#   PS-Host mit Exit-Code 2 terminiert (genau das Symptom war: Heartbeat
+#   bei 5s sichtbar, dann silent exit 2 ohne Retry).
+# - Start-Process mit -RedirectStandardOutput/-RedirectStandardError schreibt
+#   direkt in Files (Win32-Pipe → File-Handle, kein .NET Stream-Reader).
 function Invoke-PullWithHeartbeat {
     param(
         [string]$ModelName,
@@ -2994,43 +3008,19 @@ function Invoke-PullWithHeartbeat {
         [int]$StallTimeoutSeconds = 300,
         [int]$HeartbeatIntervalSeconds = 30
     )
-    $pullLog = Join-Path $env:TEMP "hablara-pull-$([System.IO.Path]::GetRandomFileName()).tmp"
+    $pullOut = Join-Path $env:TEMP "hablara-pull-out-$([System.IO.Path]::GetRandomFileName()).tmp"
+    $pullErr = Join-Path $env:TEMP "hablara-pull-err-$([System.IO.Path]::GetRandomFileName()).tmp"
+    $process = $null
 
     try {
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = 'ollama'
-        $psi.Arguments = "pull $ModelName"
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.CreateNoWindow = $true
+        $process = Start-Process -FilePath 'ollama' -ArgumentList @('pull', $ModelName) `
+            -RedirectStandardOutput $pullOut -RedirectStandardError $pullErr `
+            -NoNewWindow -PassThru
 
-        $process = [System.Diagnostics.Process]::Start($psi)
-
-        # Drain stdout asynchronously to prevent buffer deadlock
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-
-        # Use event-based stderr reading for reliable stall detection.
-        # ReadToEndAsync() only completes when the stream closes (process exits),
-        # making IsCompleted unsuitable for mid-download stall checks.
-        # stderr-Zeilen werden zusätzlich gesammelt, damit bei Fehlern die echte
-        # Meldung angezeigt werden kann (ollama pull schreibt Fehler nach stderr).
-        # WICHTIG: `$process.ErrorDataReceived += {...}` bricht unter
-        # `Set-StrictMode -Version Latest` (PS 5.1), weil Events keine Properties
-        # sind und Property-Read fehlschlägt. add_ErrorDataReceived(...) umgeht das.
         $startTime = Get-Date
-        $stdErrLines = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
-        $progress = [hashtable]::Synchronized(@{ LastTime = $startTime; StdErr = $stdErrLines })
-        $process.add_ErrorDataReceived({
-            param($s, $e)
-            if ($null -ne $e.Data) {
-                $progress.LastTime = Get-Date
-                [void]$progress.StdErr.Add($e.Data)
-            }
-        })
-        $process.BeginErrorReadLine()
-
         $lastHeartbeat = $startTime
+        $lastProgressTime = $startTime
+        $lastSize = [int64]0
         $firstHeartbeat = $true
 
         while (-not $process.HasExited) {
@@ -3041,15 +3031,23 @@ function Invoke-PullWithHeartbeat {
             if ($elapsed -ge $HardTimeoutSeconds) {
                 Write-Warning ($script:Msg.DownloadHardTimeout -f [math]::Floor($HardTimeoutSeconds / 60))
                 try { $process.Kill() } catch {}
-                return @{ Success = $false; TimedOut = $true; Stalled = $false }
+                return @{ Success = $false; TimedOut = $true; Stalled = $false; ExitCode = 124; StdErr = '' }
             }
 
-            # Stall detection: no stderr output for StallTimeoutSeconds
-            $stallSeconds = ((Get-Date) - $progress.LastTime).TotalSeconds
-            if ($stallSeconds -ge $StallTimeoutSeconds) {
-                Write-Warning ($script:Msg.DownloadStall -f [math]::Floor($StallTimeoutSeconds / 60))
-                try { $process.Kill() } catch {}
-                return @{ Success = $false; TimedOut = $false; Stalled = $true }
+            # Stall detection via file growth (mirror bash _pull_with_heartbeat)
+            $sizeOut = if (Test-Path -LiteralPath $pullOut) { (Get-Item -LiteralPath $pullOut).Length } else { 0 }
+            $sizeErr = if (Test-Path -LiteralPath $pullErr) { (Get-Item -LiteralPath $pullErr).Length } else { 0 }
+            $currentSize = [int64]($sizeOut + $sizeErr)
+            if ($currentSize -gt $lastSize) {
+                $lastSize = $currentSize
+                $lastProgressTime = Get-Date
+            } else {
+                $stallSeconds = ((Get-Date) - $lastProgressTime).TotalSeconds
+                if ($stallSeconds -ge $StallTimeoutSeconds) {
+                    Write-Warning ($script:Msg.DownloadStall -f [math]::Floor($StallTimeoutSeconds / 60))
+                    try { $process.Kill() } catch {}
+                    return @{ Success = $false; TimedOut = $false; Stalled = $true; ExitCode = 1; StdErr = '' }
+                }
             }
 
             # Heartbeat: first after 1s, then every 30 seconds
@@ -3065,14 +3063,26 @@ function Invoke-PullWithHeartbeat {
             }
         }
 
+        # Race-Condition: Start-Process kann ExitCode = 0 zurück geben bevor
+        # Files vollständig geflusht sind. Kurz warten, dann Files lesen.
+        Start-Sleep -Milliseconds 200
         $exitCode = $process.ExitCode
-        $lastErr = ($progress.StdErr | Select-Object -Last 5) -join "`n"
+        $stderrText = ''
+        if (Test-Path -LiteralPath $pullErr) {
+            try { $stderrText = (Get-Content -LiteralPath $pullErr -Raw -ErrorAction SilentlyContinue) } catch {}
+        }
+        # Letzte 5 nicht-leere Zeilen für die Fehleranzeige
+        $lastErr = ''
+        if ($stderrText) {
+            $lastErr = ($stderrText -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 5) -join "`n"
+        }
         return @{ Success = ($exitCode -eq 0); TimedOut = $false; Stalled = $false; ExitCode = $exitCode; StdErr = $lastErr }
     } catch {
         return @{ Success = $false; TimedOut = $false; Stalled = $false; ExitCode = -1; StdErr = $_.Exception.Message }
     } finally {
-        if ($null -ne $process) { try { $process.CancelErrorRead(); $process.Dispose() } catch {} }
-        Remove-Item -LiteralPath $pullLog -Force -ErrorAction SilentlyContinue
+        if ($null -ne $process) { try { $process.Dispose() } catch {} }
+        Remove-Item -LiteralPath $pullOut -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $pullErr -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -4077,32 +4087,20 @@ PARAMETER repeat_penalty 1.1
     $createMsg = $script:Msg.CustomCreating -f $script:CustomModelName
 
     $createProc = $null
+    $createOut = Join-Path $env:TEMP "hablara-create-out-$([System.IO.Path]::GetRandomFileName()).tmp"
+    $createErr = Join-Path $env:TEMP "hablara-create-err-$([System.IO.Path]::GetRandomFileName()).tmp"
     try {
-        # In-process Process.Start statt Start-Job:
-        # Start-Job spawnt einen neuen PowerShell-Prozess OHNE Console; der
-        # ollama-Subprozess bekommt dort kein brauchbares stdin/stdout und hing
-        # 300s ("ollama macht nichts"). In-process Start erbt die Parent-Console
-        # natürlich — ollama sieht dieselbe stdin-TTY wie die PS-Session.
-        # WICHTIG: stdin NICHT redirecten. `ollama pull`/`create` erwarten in
-        # 0.20+ eine echte Console (TUI-Progress via ANSI-Escapes auf stderr).
-        # RedirectStandardInput + Close() lässt ollama mit ExitCode 2 sofort
-        # abbrechen, bevor der Download startet.
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = 'ollama'
-        $createArgs = @('create', $script:CustomModelName, '-f', $modelfilePath)
-        $psi.Arguments = ($createArgs | ForEach-Object {
-            if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
-        }) -join ' '
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.CreateNoWindow = $true
-
-        $createProc = [System.Diagnostics.Process]::Start($psi)
-
-        # Async stdout/stderr lesen (verhindert Deadlock bei grosser Ausgabe)
-        $stdoutTask = $createProc.StandardOutput.ReadToEndAsync()
-        $stderrTask = $createProc.StandardError.ReadToEndAsync()
+        # Start-Process mit Datei-Redirect statt in-process Process.Start +
+        # ReadToEndAsync(). Hintergrund: dotnet/runtime#81896 + PowerShell#12338
+        # — Process mit gleichzeitigen async Stream-Readern terminiert PS-Host
+        # mit Exit-Code 2 wenn das Event-System fehlerhaft wird. File-basierte
+        # Redirects sind Win32-native und immun dagegen.
+        # WICHTIG: stdin NICHT redirecten. `ollama create` in 0.20+ erwartet
+        # eine echte Console (TUI-Progress).
+        $createProc = Start-Process -FilePath 'ollama' `
+            -ArgumentList @('create', $script:CustomModelName, '-f', $modelfilePath) `
+            -RedirectStandardOutput $createOut -RedirectStandardError $createErr `
+            -NoNewWindow -PassThru
 
         $timeoutMs = 300 * 1000
         $startTime = [System.Environment]::TickCount
@@ -4123,8 +4121,13 @@ PARAMETER repeat_penalty 1.1
         }
         if ($isInteractive) { Write-Host "`r$(' ' * ($createMsg.Length + 8))`r" -NoNewline }
 
+        # Race-Condition: Files können beim ExitCode-Read noch nicht vollständig
+        # geflusht sein. Kurz warten, dann lesen.
+        Start-Sleep -Milliseconds 200
         $stderrText = ''
-        try { $stderrText = $stderrTask.GetAwaiter().GetResult() } catch {}
+        if (Test-Path -LiteralPath $createErr) {
+            try { $stderrText = (Get-Content -LiteralPath $createErr -Raw -ErrorAction SilentlyContinue) } catch {}
+        }
 
         if ($timedOut) {
             Write-Warning $script:Msg.CustomCreateTO
@@ -4151,6 +4154,8 @@ PARAMETER repeat_penalty 1.1
     } finally {
         if ($null -ne $createProc) { try { $createProc.Dispose() } catch {} }
         if (Test-Path $modelfilePath) { Remove-Item -LiteralPath $modelfilePath -Force -ErrorAction SilentlyContinue }
+        Remove-Item -LiteralPath $createOut -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $createErr -Force -ErrorAction SilentlyContinue
     }
 }
 
