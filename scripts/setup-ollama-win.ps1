@@ -59,7 +59,7 @@ trap {
 # Configuration
 # ============================================================================
 
-$ScriptVersion = '1.7.2'
+$ScriptVersion = '1.7.3'
 $OllamaApiUrl = 'http://localhost:11434'
 $MinOllamaVersion = '0.3.0'
 
@@ -288,8 +288,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Using default configuration'
             $script:Msg.ConfigReadError    = 'Could not read configuration: {0}'
             $script:Msg.CustomCreating      = 'Creating Hablará model {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create timeout after 120s — using base model'
-            $script:Msg.CustomCreateFail   = 'Hablará model could not be {0} - using base model'
+            $script:Msg.CustomCreateTO     = 'ollama create timeout after 300s'
+            $script:Msg.CustomCreateFail   = 'Hablará model could not be {0}'
             $script:Msg.CustomDone         = 'Hablará model {0}: {1}'
             $script:Msg.ConfigError        = 'Configuration error'
             $script:Msg.PermsWarn          = 'Could not set restrictive permissions: {0}'
@@ -302,7 +302,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Base model not found: {0}'
             $script:Msg.BaseOk             = 'Base model available: {0}'
             $script:Msg.CustomOk           = 'Hablará model available: {0}'
-            $script:Msg.CustomUnavail      = 'Hablará model unavailable (using base model)'
+            $script:Msg.CustomUnavail      = 'Hablará model {0} is missing: setup incomplete. Please run the script again.'
             $script:Msg.InferenceFailed    = 'Model test failed, test in the app'
             $script:Msg.SetupDone          = 'Setup complete!'
             # Main Summary
@@ -528,8 +528,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Usando configuración por defecto'
             $script:Msg.ConfigReadError    = 'No se pudo leer la configuración: {0}'
             $script:Msg.CustomCreating      = 'Creando modelo Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create superó el tiempo límite de 120s — usando modelo base'
-            $script:Msg.CustomCreateFail   = 'El modelo Hablará no pudo ser {0} - usando modelo base'
+            $script:Msg.CustomCreateTO     = 'ollama create superó el tiempo límite de 300s'
+            $script:Msg.CustomCreateFail   = 'El modelo Hablará no pudo ser {0}'
             $script:Msg.CustomDone         = 'Modelo Hablará {0}: {1}'
             $script:Msg.ConfigError        = 'Error de configuración'
             $script:Msg.PermsWarn          = 'No se pudieron establecer permisos restrictivos: {0}'
@@ -542,7 +542,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Modelo base no encontrado: {0}'
             $script:Msg.BaseOk             = 'Modelo base disponible: {0}'
             $script:Msg.CustomOk           = 'Modelo Hablará disponible: {0}'
-            $script:Msg.CustomUnavail      = 'Modelo Hablará no disponible (usando modelo base)'
+            $script:Msg.CustomUnavail      = 'Falta el modelo Hablará {0}: configuración incompleta. Vuelve a ejecutar el script.'
             $script:Msg.InferenceFailed    = 'Prueba del modelo fallida, prueba en la app'
             $script:Msg.SetupDone          = '¡Configuración completada!'
             # Main Summary
@@ -768,8 +768,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Utilisation de la configuration par défaut'
             $script:Msg.ConfigReadError    = 'Impossible de lire la configuration : {0}'
             $script:Msg.CustomCreating      = 'Création du modèle Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create a dépassé le délai de 120s — utilisation du modèle de base'
-            $script:Msg.CustomCreateFail   = 'Le modèle Hablará n''a pas pu être {0} - utilisation du modèle de base'
+            $script:Msg.CustomCreateTO     = 'ollama create a dépassé le délai de 300s'
+            $script:Msg.CustomCreateFail   = 'Le modèle Hablará n''a pas pu être {0}'
             $script:Msg.CustomDone         = 'Modèle Hablará {0} : {1}'
             $script:Msg.ConfigError        = 'Erreur de configuration'
             $script:Msg.PermsWarn          = 'Impossible de définir des autorisations restrictives : {0}'
@@ -782,7 +782,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Modèle de base introuvable : {0}'
             $script:Msg.BaseOk             = 'Modèle de base disponible : {0}'
             $script:Msg.CustomOk           = 'Modèle Hablará disponible : {0}'
-            $script:Msg.CustomUnavail      = 'Modèle Hablará indisponible (utilisation du modèle de base)'
+            $script:Msg.CustomUnavail      = 'Modèle Hablará {0} manquant : configuration incomplète. Relancez le script.'
             $script:Msg.InferenceFailed    = "Test du modèle échoué, testez dans l'application"
             $script:Msg.SetupDone          = 'Configuration terminée !'
             # Main Summary
@@ -1008,8 +1008,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Utilizzo della configurazione predefinita'
             $script:Msg.ConfigReadError    = 'Impossibile leggere la configurazione: {0}'
             $script:Msg.CustomCreating      = 'Creazione del modello Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create ha superato il tempo massimo di 120s — utilizzo del modello base'
-            $script:Msg.CustomCreateFail   = 'Il modello Hablará non ha potuto essere {0} - utilizzo del modello base'
+            $script:Msg.CustomCreateTO     = 'ollama create ha superato il tempo massimo di 300s'
+            $script:Msg.CustomCreateFail   = 'Il modello Hablará non ha potuto essere {0}'
             $script:Msg.CustomDone         = 'Modello Hablará {0}: {1}'
             $script:Msg.ConfigError        = 'Errore di configurazione'
             $script:Msg.PermsWarn          = 'Impossibile impostare autorizzazioni restrittive: {0}'
@@ -1022,7 +1022,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Modello base non trovato: {0}'
             $script:Msg.BaseOk             = 'Modello base disponibile: {0}'
             $script:Msg.CustomOk           = 'Modello Hablará disponibile: {0}'
-            $script:Msg.CustomUnavail      = 'Modello Hablará non disponibile (utilizzo del modello base)'
+            $script:Msg.CustomUnavail      = 'Modello Hablará {0} mancante: configurazione incompleta. Esegui di nuovo lo script.'
             $script:Msg.InferenceFailed    = "Test del modello fallito, testare nell'app"
             $script:Msg.SetupDone          = 'Configurazione completata!'
             # Main Summary
@@ -1248,8 +1248,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Standaardconfiguratie gebruiken'
             $script:Msg.ConfigReadError    = 'Configuratie kon niet worden gelezen: {0}'
             $script:Msg.CustomCreating      = 'Hablará-model {0} aanmaken...'
-            $script:Msg.CustomCreateTO     = 'ollama create time-out na 120s — basismodel gebruiken'
-            $script:Msg.CustomCreateFail   = 'Hablará-model kon niet worden {0} - basismodel gebruiken'
+            $script:Msg.CustomCreateTO     = 'ollama create time-out na 300s'
+            $script:Msg.CustomCreateFail   = 'Hablará-model kon niet worden {0}'
             $script:Msg.CustomDone         = 'Hablará-model {0}: {1}'
             $script:Msg.ConfigError        = 'Configuratiefout'
             $script:Msg.PermsWarn          = 'Konden geen beperkende rechten instellen: {0}'
@@ -1262,7 +1262,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Basismodel niet gevonden: {0}'
             $script:Msg.BaseOk             = 'Basismodel beschikbaar: {0}'
             $script:Msg.CustomOk           = 'Hablará-model beschikbaar: {0}'
-            $script:Msg.CustomUnavail      = 'Hablará-model niet beschikbaar (basismodel gebruiken)'
+            $script:Msg.CustomUnavail      = 'Hablará-model {0} ontbreekt: installatie onvolledig. Voer het script opnieuw uit.'
             $script:Msg.InferenceFailed    = 'Modeltest mislukt, testen in de app'
             $script:Msg.SetupDone          = 'Installatie voltooid!'
             # Main Summary
@@ -1488,8 +1488,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'A utilizar a configuração padrão'
             $script:Msg.ConfigReadError    = 'Não foi possível ler a configuração: {0}'
             $script:Msg.CustomCreating      = 'A criar o modelo Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create atingiu o tempo limite de 120s — a utilizar o modelo base'
-            $script:Msg.CustomCreateFail   = 'Não foi possível {0} o modelo Hablará - a utilizar o modelo base'
+            $script:Msg.CustomCreateTO     = 'ollama create atingiu o tempo limite de 300s'
+            $script:Msg.CustomCreateFail   = 'Não foi possível {0} o modelo Hablará'
             $script:Msg.CustomDone         = 'Modelo Hablará {0}: {1}'
             $script:Msg.ConfigError        = 'Erro de configuração'
             $script:Msg.PermsWarn          = 'Não foi possível definir permissões restritivas: {0}'
@@ -1502,7 +1502,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Modelo base não encontrado: {0}'
             $script:Msg.BaseOk             = 'Modelo base disponível: {0}'
             $script:Msg.CustomOk           = 'Modelo Hablará disponível: {0}'
-            $script:Msg.CustomUnavail      = 'Modelo Hablará não disponível (a utilizar o modelo base)'
+            $script:Msg.CustomUnavail      = 'Modelo Hablará {0} em falta: configuração incompleta. Execute o script novamente.'
             $script:Msg.InferenceFailed    = 'Teste do modelo falhou, testar na aplicação'
             $script:Msg.SetupDone          = 'Instalação concluída!'
             # Main Summary
@@ -1728,8 +1728,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Używanie domyślnej konfiguracji'
             $script:Msg.ConfigReadError    = 'Nie można odczytać konfiguracji: {0}'
             $script:Msg.CustomCreating      = 'Tworzenie modelu Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create przekroczył limit czasu 120s — używanie modelu bazowego'
-            $script:Msg.CustomCreateFail   = 'Nie udało się {0} modelu Hablará — używanie modelu bazowego'
+            $script:Msg.CustomCreateTO     = 'ollama create przekroczył limit czasu 300s'
+            $script:Msg.CustomCreateFail   = 'Nie udało się {0} modelu Hablará'
             $script:Msg.CustomDone         = 'Model Hablará {0}: {1}'
             $script:Msg.ConfigError        = 'Błąd konfiguracji'
             $script:Msg.PermsWarn          = 'Nie można ustawić restrykcyjnych uprawnień: {0}'
@@ -1742,7 +1742,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Nie znaleziono modelu bazowego: {0}'
             $script:Msg.BaseOk             = 'Model bazowy dostępny: {0}'
             $script:Msg.CustomOk           = 'Model Hablará dostępny: {0}'
-            $script:Msg.CustomUnavail      = 'Model Hablará niedostępny (używanie modelu bazowego)'
+            $script:Msg.CustomUnavail      = 'Brak modelu Hablará {0}: konfiguracja niekompletna. Uruchom skrypt ponownie.'
             $script:Msg.InferenceFailed    = 'Test modelu nie powiódł się, przetestuj w aplikacji'
             $script:Msg.SetupDone          = 'Instalacja zakończona!'
             # Main Summary
@@ -1968,8 +1968,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Använder standardkonfiguration'
             $script:Msg.ConfigReadError    = 'Kunde inte läsa konfiguration: {0}'
             $script:Msg.CustomCreating      = 'Skapar Hablará-modell {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create timeout efter 120s – använder basmodell'
-            $script:Msg.CustomCreateFail   = 'Hablará-modell kunde inte {0} – använder basmodell'
+            $script:Msg.CustomCreateTO     = 'ollama create timeout efter 300s'
+            $script:Msg.CustomCreateFail   = 'Hablará-modell kunde inte {0}'
             $script:Msg.CustomDone         = 'Hablará-modell {0}: {1}'
             $script:Msg.ConfigError        = 'Konfigurationsfel'
             $script:Msg.PermsWarn          = 'Kunde inte sätta begränsade behörigheter: {0}'
@@ -1982,7 +1982,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Basmodell hittades inte: {0}'
             $script:Msg.BaseOk             = 'Basmodell tillgänglig: {0}'
             $script:Msg.CustomOk           = 'Hablará-modell tillgänglig: {0}'
-            $script:Msg.CustomUnavail      = 'Hablará-modell otillgänglig (använder basmodell)'
+            $script:Msg.CustomUnavail      = 'Hablará-modellen {0} saknas: installationen är ofullständig. Kör skriptet igen.'
             $script:Msg.InferenceFailed    = 'Modelltest misslyckades, testa i appen'
             $script:Msg.SetupDone          = 'Installation klar!'
             # Main Summary
@@ -2208,8 +2208,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Bruger standardkonfiguration'
             $script:Msg.ConfigReadError    = 'Kunne ikke læse konfiguration: {0}'
             $script:Msg.CustomCreating      = 'Opretter Hablará-model {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create timeout efter 120s – bruger basismodel'
-            $script:Msg.CustomCreateFail   = 'Hablará-model kunne ikke {0} – bruger basismodel'
+            $script:Msg.CustomCreateTO     = 'ollama create timeout efter 300s'
+            $script:Msg.CustomCreateFail   = 'Hablará-model kunne ikke {0}'
             $script:Msg.CustomDone         = 'Hablará-model {0}: {1}'
             $script:Msg.ConfigError        = 'Konfigurationsfejl'
             $script:Msg.PermsWarn          = 'Kunne ikke angive begrænsede tilladelser: {0}'
@@ -2222,7 +2222,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Basismodel ikke fundet: {0}'
             $script:Msg.BaseOk             = 'Basismodel tilgængelig: {0}'
             $script:Msg.CustomOk           = 'Hablará-model tilgængelig: {0}'
-            $script:Msg.CustomUnavail      = 'Hablará-model ikke tilgængelig (bruger basismodel)'
+            $script:Msg.CustomUnavail      = 'Hablará-modellen {0} mangler: opsætningen er ufuldstændig. Kør scriptet igen.'
             $script:Msg.InferenceFailed    = 'Modeltest mislykkedes, test i appen'
             $script:Msg.SetupDone          = 'Installation fuldført!'
             # Main Summary
@@ -2448,8 +2448,8 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Verwende Standard-Konfiguration'
             $script:Msg.ConfigReadError    = 'Konnte Konfiguration nicht lesen: {0}'
             $script:Msg.CustomCreating      = 'Erstelle Hablará-Modell {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create Timeout nach 120s — verwende Basis-Modell'
-            $script:Msg.CustomCreateFail   = 'Hablará-Modell konnte nicht {0} werden - verwende Basis-Modell'
+            $script:Msg.CustomCreateTO     = 'ollama create Timeout nach 300s'
+            $script:Msg.CustomCreateFail   = 'Hablará-Modell konnte nicht {0} werden'
             $script:Msg.CustomDone         = 'Hablará-Modell {0}: {1}'
             $script:Msg.ConfigError        = 'Konfigurationsfehler'
             $script:Msg.PermsWarn          = 'Konnte restriktive Berechtigungen nicht setzen: {0}'
@@ -2462,7 +2462,7 @@ function Initialize-Messages {
             $script:Msg.BaseNotFound       = 'Basis-Modell nicht gefunden: {0}'
             $script:Msg.BaseOk             = 'Basis-Modell verfügbar: {0}'
             $script:Msg.CustomOk           = 'Hablará-Modell verfügbar: {0}'
-            $script:Msg.CustomUnavail      = 'Hablará-Modell nicht verfügbar (verwende Basis-Modell)'
+            $script:Msg.CustomUnavail      = 'Hablará-Modell {0} fehlt: Einrichtung unvollständig. Bitte das Skript erneut ausführen.'
             $script:Msg.InferenceFailed    = 'Modell-Test fehlgeschlagen, teste in der App'
             $script:Msg.SetupDone          = 'Setup abgeschlossen!'
             # Main Summary
@@ -4180,13 +4180,13 @@ function Test-Installation {
     if (-not (Test-OllamaModelExists $script:ModelName)) { Write-Err ($script:Msg.BaseNotFound -f $script:ModelName); return $false }
     Write-Success ($script:Msg.BaseOk -f $script:ModelName)
 
-    $testModel = $script:ModelName
-    if (Test-OllamaModelExists $script:CustomModelName) {
-        Write-Success ($script:Msg.CustomOk -f $script:CustomModelName)
-        $testModel = $script:CustomModelName
-    } else {
-        Write-Warning $script:Msg.CustomUnavail
+    # Ohne Hablará-Modell kann die App Ollama nicht nutzen: dann kein "Setup abgeschlossen" melden
+    if (-not (Test-OllamaModelExists $script:CustomModelName)) {
+        Write-Err ($script:Msg.CustomUnavail -f $script:CustomModelName)
+        return $false
     }
+    Write-Success ($script:Msg.CustomOk -f $script:CustomModelName)
+    $testModel = $script:CustomModelName
 
     if (-not (Test-ModelInference -Model $testModel)) {
         Write-Warning $script:Msg.InferenceFailed

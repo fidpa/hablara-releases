@@ -17,7 +17,7 @@ export LC_NUMERIC=C
 # Configuration
 # ============================================================================
 
-readonly SCRIPT_VERSION="1.7.2"
+readonly SCRIPT_VERSION="1.7.3"
 readonly OLLAMA_API_URL="http://localhost:11434"
 readonly OLLAMA_INSTALL_URL="https://ollama.com/install.sh"
 readonly MIN_OLLAMA_VERSION="0.3.0"
@@ -297,8 +297,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Using Hablará configuration"
       MSG_USING_DEFAULT_CONFIG="Using default configuration"
       MSG_CUSTOM_CREATING="Creating Hablará model %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout after 120s — using base model"
-      MSG_CUSTOM_CREATE_FAILED="Hablará model could not be %s - using base model"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout after 120s"
+      MSG_CUSTOM_CREATE_FAILED="Hablará model could not be %s"
       MSG_CUSTOM_DONE="Hablará model %s: %s"
       MSG_VERB_CREATED="created"
       MSG_VERB_UPDATED="updated"
@@ -309,7 +309,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Base model not found: %s"
       MSG_BASE_OK="Base model available: %s"
       MSG_CUSTOM_OK="Hablará model available: %s"
-      MSG_CUSTOM_UNAVAILABLE="Hablará model unavailable (using base model)"
+      MSG_CUSTOM_UNAVAILABLE="Hablará model %s is missing: setup incomplete. Please run the script again."
       MSG_INFERENCE_FAILED="Model test failed, test in the app"
       MSG_SETUP_DONE="Setup complete!"
       # Main Summary
@@ -580,8 +580,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Usando configuración de Hablará"
       MSG_USING_DEFAULT_CONFIG="Usando configuración por defecto"
       MSG_CUSTOM_CREATING="Creando modelo Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create superó el tiempo límite de 120s — usando modelo base"
-      MSG_CUSTOM_CREATE_FAILED="El modelo Hablará no pudo ser %s - usando modelo base"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create superó el tiempo límite de 120s"
+      MSG_CUSTOM_CREATE_FAILED="El modelo Hablará no pudo ser %s"
       MSG_CUSTOM_DONE="Modelo Hablará %s: %s"
       MSG_VERB_CREATED="creado"
       MSG_VERB_UPDATED="actualizado"
@@ -592,7 +592,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Modelo base no encontrado: %s"
       MSG_BASE_OK="Modelo base disponible: %s"
       MSG_CUSTOM_OK="Modelo Hablará disponible: %s"
-      MSG_CUSTOM_UNAVAILABLE="Modelo Hablará no disponible (usando modelo base)"
+      MSG_CUSTOM_UNAVAILABLE="Falta el modelo Hablará %s: configuración incompleta. Vuelve a ejecutar el script."
       MSG_INFERENCE_FAILED="Prueba del modelo fallida, prueba en la app"
       MSG_SETUP_DONE="¡Configuración completada!"
       # Main Summary
@@ -863,8 +863,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Utilisation de la configuration Hablará"
       MSG_USING_DEFAULT_CONFIG="Utilisation de la configuration par défaut"
       MSG_CUSTOM_CREATING="Création du modèle Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create a dépassé le délai de 120s — utilisation du modèle de base"
-      MSG_CUSTOM_CREATE_FAILED="Le modèle Hablará n'a pas pu être %s - utilisation du modèle de base"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create a dépassé le délai de 120s"
+      MSG_CUSTOM_CREATE_FAILED="Le modèle Hablará n'a pas pu être %s"
       MSG_CUSTOM_DONE="Modèle Hablará %s : %s"
       MSG_VERB_CREATED="créé"
       MSG_VERB_UPDATED="mis à jour"
@@ -875,7 +875,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Modèle de base introuvable : %s"
       MSG_BASE_OK="Modèle de base disponible : %s"
       MSG_CUSTOM_OK="Modèle Hablará disponible : %s"
-      MSG_CUSTOM_UNAVAILABLE="Modèle Hablará indisponible (utilisation du modèle de base)"
+      MSG_CUSTOM_UNAVAILABLE="Modèle Hablará %s manquant : configuration incomplète. Relancez le script."
       MSG_INFERENCE_FAILED="Test du modèle échoué, testez dans l'application"
       MSG_SETUP_DONE="Configuration terminée !"
       # Main Summary
@@ -1146,8 +1146,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Utilizzo della configurazione Hablará"
       MSG_USING_DEFAULT_CONFIG="Utilizzo della configurazione predefinita"
       MSG_CUSTOM_CREATING="Creazione del modello Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create ha superato il tempo massimo di 120s — utilizzo del modello base"
-      MSG_CUSTOM_CREATE_FAILED="Il modello Hablará non ha potuto essere %s - utilizzo del modello base"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create ha superato il tempo massimo di 120s"
+      MSG_CUSTOM_CREATE_FAILED="Il modello Hablará non ha potuto essere %s"
       MSG_CUSTOM_DONE="Modello Hablará %s: %s"
       MSG_VERB_CREATED="creato"
       MSG_VERB_UPDATED="aggiornato"
@@ -1158,7 +1158,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Modello base non trovato: %s"
       MSG_BASE_OK="Modello base disponibile: %s"
       MSG_CUSTOM_OK="Modello Hablará disponibile: %s"
-      MSG_CUSTOM_UNAVAILABLE="Modello Hablará non disponibile (utilizzo del modello base)"
+      MSG_CUSTOM_UNAVAILABLE="Modello Hablará %s mancante: configurazione incompleta. Esegui di nuovo lo script."
       MSG_INFERENCE_FAILED="Test del modello fallito, testare nell'app"
       MSG_SETUP_DONE="Configurazione completata!"
       # Main Summary
@@ -1429,8 +1429,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Hablará-configuratie gebruiken"
       MSG_USING_DEFAULT_CONFIG="Standaardconfiguratie gebruiken"
       MSG_CUSTOM_CREATING="Hablará-model %s aanmaken..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create time-out na 120s — basismodel gebruiken"
-      MSG_CUSTOM_CREATE_FAILED="Hablará-model kon niet worden %s - basismodel gebruiken"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create time-out na 120s"
+      MSG_CUSTOM_CREATE_FAILED="Hablará-model kon niet worden %s"
       MSG_CUSTOM_DONE="Hablará-model %s: %s"
       MSG_VERB_CREATED="aangemaakt"
       MSG_VERB_UPDATED="bijgewerkt"
@@ -1441,7 +1441,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Basismodel niet gevonden: %s"
       MSG_BASE_OK="Basismodel beschikbaar: %s"
       MSG_CUSTOM_OK="Hablará-model beschikbaar: %s"
-      MSG_CUSTOM_UNAVAILABLE="Hablará-model niet beschikbaar (basismodel gebruiken)"
+      MSG_CUSTOM_UNAVAILABLE="Hablará-model %s ontbreekt: installatie onvolledig. Voer het script opnieuw uit."
       MSG_INFERENCE_FAILED="Modeltest mislukt, testen in de app"
       MSG_SETUP_DONE="Installatie voltooid!"
       # Main Summary
@@ -1712,8 +1712,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="A utilizar a configuração Hablará"
       MSG_USING_DEFAULT_CONFIG="A utilizar a configuração padrão"
       MSG_CUSTOM_CREATING="A criar o modelo Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create atingiu o tempo limite de 120s — a utilizar o modelo base"
-      MSG_CUSTOM_CREATE_FAILED="Não foi possível %s o modelo Hablará - a utilizar o modelo base"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create atingiu o tempo limite de 120s"
+      MSG_CUSTOM_CREATE_FAILED="Não foi possível %s o modelo Hablará"
       MSG_CUSTOM_DONE="Modelo Hablará %s: %s"
       MSG_VERB_CREATED="criado"
       MSG_VERB_UPDATED="atualizado"
@@ -1724,7 +1724,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Modelo base não encontrado: %s"
       MSG_BASE_OK="Modelo base disponível: %s"
       MSG_CUSTOM_OK="Modelo Hablará disponível: %s"
-      MSG_CUSTOM_UNAVAILABLE="Modelo Hablará não disponível (a utilizar o modelo base)"
+      MSG_CUSTOM_UNAVAILABLE="Modelo Hablará %s em falta: configuração incompleta. Execute o script novamente."
       MSG_INFERENCE_FAILED="Teste do modelo falhou, testar na aplicação"
       MSG_SETUP_DONE="Instalação concluída!"
       # Main Summary
@@ -1995,8 +1995,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Używanie konfiguracji Hablará"
       MSG_USING_DEFAULT_CONFIG="Używanie domyślnej konfiguracji"
       MSG_CUSTOM_CREATING="Tworzenie modelu Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create przekroczył limit czasu 120s — używanie modelu bazowego"
-      MSG_CUSTOM_CREATE_FAILED="Nie udało się %s modelu Hablará — używanie modelu bazowego"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create przekroczył limit czasu 120s"
+      MSG_CUSTOM_CREATE_FAILED="Nie udało się %s modelu Hablará"
       MSG_CUSTOM_DONE="Model Hablará %s: %s"
       MSG_VERB_CREATED="utworzony"
       MSG_VERB_UPDATED="zaktualizowany"
@@ -2007,7 +2007,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Nie znaleziono modelu bazowego: %s"
       MSG_BASE_OK="Model bazowy dostępny: %s"
       MSG_CUSTOM_OK="Model Hablará dostępny: %s"
-      MSG_CUSTOM_UNAVAILABLE="Model Hablará niedostępny (używanie modelu bazowego)"
+      MSG_CUSTOM_UNAVAILABLE="Brak modelu Hablará %s: konfiguracja niekompletna. Uruchom skrypt ponownie."
       MSG_INFERENCE_FAILED="Test modelu nie powiódł się, przetestuj w aplikacji"
       MSG_SETUP_DONE="Instalacja zakończona!"
       # Main Summary
@@ -2278,8 +2278,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Använder Hablará-konfiguration"
       MSG_USING_DEFAULT_CONFIG="Använder standardkonfiguration"
       MSG_CUSTOM_CREATING="Skapar Hablará-modell %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout efter 120s – använder basmodell"
-      MSG_CUSTOM_CREATE_FAILED="Hablará-modell kunde inte %s – använder basmodell"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout efter 120s"
+      MSG_CUSTOM_CREATE_FAILED="Hablará-modell kunde inte %s"
       MSG_CUSTOM_DONE="Hablará-modell %s: %s"
       MSG_VERB_CREATED="skapad"
       MSG_VERB_UPDATED="uppdaterad"
@@ -2290,7 +2290,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Basmodell hittades inte: %s"
       MSG_BASE_OK="Basmodell tillgänglig: %s"
       MSG_CUSTOM_OK="Hablará-modell tillgänglig: %s"
-      MSG_CUSTOM_UNAVAILABLE="Hablará-modell otillgänglig (använder basmodell)"
+      MSG_CUSTOM_UNAVAILABLE="Hablará-modellen %s saknas: installationen är ofullständig. Kör skriptet igen."
       MSG_INFERENCE_FAILED="Modelltest misslyckades, testa i appen"
       MSG_SETUP_DONE="Installation klar!"
       # Main Summary
@@ -2561,8 +2561,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Bruger Hablará-konfiguration"
       MSG_USING_DEFAULT_CONFIG="Bruger standardkonfiguration"
       MSG_CUSTOM_CREATING="Opretter Hablará-model %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout efter 120s – bruger basismodel"
-      MSG_CUSTOM_CREATE_FAILED="Hablará-model kunne ikke %s – bruger basismodel"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout efter 120s"
+      MSG_CUSTOM_CREATE_FAILED="Hablará-model kunne ikke %s"
       MSG_CUSTOM_DONE="Hablará-model %s: %s"
       MSG_VERB_CREATED="oprettet"
       MSG_VERB_UPDATED="opdateret"
@@ -2573,7 +2573,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Basismodel ikke fundet: %s"
       MSG_BASE_OK="Basismodel tilgængelig: %s"
       MSG_CUSTOM_OK="Hablará-model tilgængelig: %s"
-      MSG_CUSTOM_UNAVAILABLE="Hablará-model ikke tilgængelig (bruger basismodel)"
+      MSG_CUSTOM_UNAVAILABLE="Hablará-modellen %s mangler: opsætningen er ufuldstændig. Kør scriptet igen."
       MSG_INFERENCE_FAILED="Modeltest mislykkedes, test i appen"
       MSG_SETUP_DONE="Installation fuldført!"
       # Main Summary
@@ -2844,8 +2844,8 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Verwende Hablará-Konfiguration"
       MSG_USING_DEFAULT_CONFIG="Verwende Standard-Konfiguration"
       MSG_CUSTOM_CREATING="Erstelle Hablará-Modell %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create Timeout nach 120s — verwende Basis-Modell"
-      MSG_CUSTOM_CREATE_FAILED="Hablará-Modell konnte nicht %s werden - verwende Basis-Modell"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create Timeout nach 120s"
+      MSG_CUSTOM_CREATE_FAILED="Hablará-Modell konnte nicht %s werden"
       MSG_CUSTOM_DONE="Hablará-Modell %s: %s"
       MSG_VERB_CREATED="erstellt"
       MSG_VERB_UPDATED="aktualisiert"
@@ -2856,7 +2856,7 @@ setup_messages() {
       MSG_BASE_NOT_FOUND="Basis-Modell nicht gefunden: %s"
       MSG_BASE_OK="Basis-Modell verfügbar: %s"
       MSG_CUSTOM_OK="Hablará-Modell verfügbar: %s"
-      MSG_CUSTOM_UNAVAILABLE="Hablará-Modell nicht verfügbar (verwende Basis-Modell)"
+      MSG_CUSTOM_UNAVAILABLE="Hablará-Modell %s fehlt: Einrichtung unvollständig. Bitte das Skript erneut ausführen."
       MSG_INFERENCE_FAILED="Modell-Test fehlgeschlagen, teste in der App"
       MSG_SETUP_DONE="Setup abgeschlossen!"
       # Main Summary
@@ -3687,7 +3687,8 @@ run_status_check() {
     local config_line
     config_line=$(get_model_config "$prio") || continue
     local candidate="${config_line%%|*}-custom"
-    for found in "${custom_models_found[@]}"; do
+    # ${arr[@]+"${arr[@]}"}: Ein leeres Array bricht unter Bash 3.2 (macOS /bin/bash) mit set -u sonst ab
+    for found in ${custom_models_found[@]+"${custom_models_found[@]}"}; do
       if [[ "$found" == "$candidate" ]]; then
         test_model="$found"
         break 2
@@ -3701,7 +3702,7 @@ run_status_check() {
       local config_line
       config_line=$(get_model_config "$prio") || continue
       local candidate="${config_line%%|*}"
-      for found in "${base_models_found[@]}"; do
+      for found in ${base_models_found[@]+"${base_models_found[@]}"}; do
         if [[ "$found" == "$candidate" ]]; then
           test_model="$found"
           break 2
@@ -3724,7 +3725,7 @@ run_status_check() {
   fi
 
   # 7. Storage usage (only Hablará-relevant qwen2.5 models, parsed from ollama list)
-  local all_models=("${base_models_found[@]}" "${custom_models_found[@]}")
+  local all_models=(${base_models_found[@]+"${base_models_found[@]}"} ${custom_models_found[@]+"${custom_models_found[@]}"})
   if [[ ${#all_models[@]} -gt 0 ]] && command_exists ollama; then
     local total_gb=0 ollama_list
     ollama_list=$(run_with_timeout 15 ollama list 2>/dev/null) || ollama_list=""
@@ -4675,13 +4676,12 @@ verify_installation() {
   }
   log_success "$(msg "$MSG_BASE_OK" "$MODEL_NAME")"
 
-  local test_model="$MODEL_NAME"
-  if ollama_model_exists "${CUSTOM_MODEL_NAME}"; then
-    log_success "$(msg "$MSG_CUSTOM_OK" "$CUSTOM_MODEL_NAME")"
-    test_model="$CUSTOM_MODEL_NAME"
-  else
-    log_warning "${MSG_CUSTOM_UNAVAILABLE}"
-  fi
+  # Ohne Hablará-Modell kann die App Ollama nicht nutzen: dann kein "Setup abgeschlossen" melden
+  ollama_model_exists "${CUSTOM_MODEL_NAME}" || {
+    log_error "$(msg "$MSG_CUSTOM_UNAVAILABLE" "$CUSTOM_MODEL_NAME")"; return 1
+  }
+  log_success "$(msg "$MSG_CUSTOM_OK" "$CUSTOM_MODEL_NAME")"
+  local test_model="$CUSTOM_MODEL_NAME"
 
   test_model_inference "$test_model" || log_warning "${MSG_INFERENCE_FAILED}"
 
