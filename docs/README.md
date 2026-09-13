@@ -16,6 +16,7 @@ End-user documentation for Hablará: guides, reference, and legal information.
 | Annotate Ground Truth data | [guides/GROUND_TRUTH_ANNOTATION.md](./guides/GROUND_TRUTH_ANNOTATION.md) |
 | Set up Ollama | [reference/OLLAMA_SETUP.md](./reference/OLLAMA_SETUP.md) |
 | Set up OpenAI or Anthropic | [reference/LLM_PROVIDERS.md](./reference/LLM_PROVIDERS.md) |
+| Batch-transcribe and analyze from the terminal | [reference/CLI.md](./reference/CLI.md) |
 | Configure hotkeys | [reference/HOTKEYS.md](./reference/HOTKEYS.md) |
 | Check model–language compatibility | [reference/MODEL_COMPATIBILITY.md](./reference/MODEL_COMPATIBILITY.md) |
 | Legal information | [legal/](./legal/) |
@@ -36,6 +37,7 @@ docs/
 ├── reference/             # Reference documentation
 │   ├── OLLAMA_SETUP.md        # Ollama setup scripts (CLI reference)
 │   ├── LLM_PROVIDERS.md       # Cloud LLM setup: OpenAI & Anthropic
+│   ├── CLI.md                 # hablara-cli: batch transcription and analysis (research, pipelines)
 │   ├── HOTKEYS.md             # Keyboard shortcuts & configuration
 │   └── MODEL_COMPATIBILITY.md # Model–language compatibility matrix (→ SSOT + website)
 └── legal/                 # Privacy, licenses, support
@@ -62,6 +64,7 @@ docs/
 
 - [Ollama Setup Scripts](./reference/OLLAMA_SETUP.md) — CLI reference for `--status`, `--diagnose`, `--cleanup`, model variants
 - [Cloud LLM Providers](./reference/LLM_PROVIDERS.md) — OpenAI and Anthropic setup, model selection, GDPR
+- [hablara-cli](./reference/CLI.md) — Batch transcription and analysis from the terminal: install, Whisper models, config, output schema, exit codes
 - [Hotkeys](./reference/HOTKEYS.md) — Customize keyboard shortcuts, avoid conflicts
 - [Model–Language Compatibility](./reference/MODEL_COMPATIBILITY.md) — Which analyses work per model and language
 
