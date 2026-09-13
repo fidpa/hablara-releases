@@ -86,9 +86,10 @@ kennt die CLI über eine dieser drei Angaben (in dieser Reihenfolge):
 Ohne Angabe sucht sie `<whisper-binary>/../../models`. Bei Homebrew gibt es diesen Ordner nicht;
 dann ist eine der drei Angaben Pflicht, die Fehlermeldung nennt sie.
 
-Das Whisper-Binary findet die CLI in dieser Reihenfolge: `--whisper-path`, `[whisper] path`,
-`HABLARA_WHISPER_PATH`, Datenordner (`~/Library/Application Support/hablara/bin`, `~/.local/share/hablara/bin`,
-`%LOCALAPPDATA%\hablara\bin`), zuletzt `whisper-cli` im PATH.
+Das Whisper-Binary findet die CLI in dieser Reihenfolge: `--whisper-path`, `HABLARA_WHISPER_PATH`,
+`[whisper] path`, Datenordner (`~/Library/Application Support/hablara/bin`, `~/.local/share/hablara/bin`,
+`%LOCALAPPDATA%\hablara\bin`; Dateinamen `whisper-cli`, `whisper`, `whisper-cpp`), zuletzt dieselben
+Namen im PATH.
 
 ### LLM-Provider
 
@@ -146,8 +147,13 @@ hablara-cli process    [OPTIONEN] <DATEIEN>...   Transkribieren und analysieren
 hablara-cli config show | init [--force]         Konfiguration anzeigen oder anlegen
 ```
 
-Globale Optionen: `--config <datei>` (Konfigurationsdatei), `-q` (kein Fortschrittsbalken),
-`-v` / `-vv` (Log-Level info / debug auf stderr; `RUST_LOG` hat Vorrang).
+Globale Optionen: `--config <datei>` (Konfigurationsdatei, sonst `HABLARA_CLI_CONFIG`), `-q` (kein
+Fortschrittsbalken), `-v` / `-vv` (Log-Level info / debug auf stderr; `RUST_LOG` hat Vorrang).
+`hablara-cli <befehl> --help` zeigt je Befehl drei Beispiele.
+
+Umgebungsvariablen: `HABLARA_CLI_CONFIG`, `HABLARA_WHISPER_PATH`, `HABLARA_MODELS_DIR`,
+`HABLARA_OLLAMA_URL` (vor `[ollama] base_url`), `RUST_LOG`. Reihenfolge überall: Kommandozeile vor
+Umgebung vor `cli.toml` vor eingebautem Standard.
 
 ### Optionen
 
@@ -168,8 +174,8 @@ Globale Optionen: `--config <datei>` (Konfigurationsdatei), `-q` (kein Fortschri
 | `--guard` | analyze, process | Analyse-Wächter: Texte unter der Mindestwortzahl ohne LLM-Aufruf überspringen | |
 | `--guard-min-words <n>` | analyze, process | Mindestwortzahl für den Wächter | Standard 10 |
 
-Reihenfolge bei allen Optionen mit Konfigurationsgegenstück: Kommandozeile vor `cli.toml` vor
-eingebautem Standard.
+Reihenfolge bei allen Optionen mit Konfigurationsgegenstück: Kommandozeile vor Umgebungsvariable
+vor `cli.toml` vor eingebautem Standard.
 
 ### Methoden
 
@@ -298,7 +304,15 @@ Ins Breitformat: `tidyr::pivot_wider(names_from = c(method, field), values_from 
 
 ### Text
 
-Nur die Transkription, eine Zeile je Datei. Für `analyze` ungeeignet.
+Menschlich lesbar: Transkription je Datei, darunter je Methode eine eingerückte Zeile.
+
+```
+Heute ist Sonntag!
+  emotion: joy (85%)
+  gfk: skipped (input_too_short)
+  summary: Du wirkst gelöst.
+  topic: creativity_hobbies (70%)
+```
 
 ---
 
@@ -310,7 +324,8 @@ Nur die Transkription, eine Zeile je Datei. Für `analyze` ungeeignet.
 | `1` | Teilerfolg: mindestens eine Datei fehlgeschlagen, mindestens eine erfolgreich |
 | `2` | Alle Dateien fehlgeschlagen, oder ein Fehler vor der Verarbeitung: Konfiguration, Argumente, fehlende Cloud-Zustimmung, Provider nicht erreichbar oder Modell nicht installiert |
 
-Eine unlesbare Eingabedatei zählt als fehlgeschlagen und steht mit `error` in der Ausgabe.
+Eine unlesbare Eingabedatei zählt als fehlgeschlagen und steht mit `error` in der Ausgabe. Bricht der
+Leser die Pipe ab (`| head`), bleibt der Exit-Code der der Verarbeitung.
 
 ---
 
