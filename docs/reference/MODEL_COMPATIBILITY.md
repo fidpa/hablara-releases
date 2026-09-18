@@ -28,8 +28,11 @@ Gemessen werden 12 Analysen gegen 5 lokale Ollama-Modelle in 15 Sprachen.
 - **Langsam-Hinweise** hängen an Modell und Sprache. Tschechisch, Rumänisch und Polnisch
   brauchen durchweg mehr Zeit als Deutsch oder Englisch.
 - **Cloud-Anbieter** (OpenAI, Anthropic, Mistral) tragen keine Einschränkungen.
-- Apple Intelligence als Anbieter ist in mehreren Sprachen gesperrt, darunter Tschechisch,
-  Polnisch, Rumänisch und Russisch.
+- **Apple Intelligence** unterstützt Tschechisch, Polnisch, Rumänisch und Russisch nicht;
+  in diesen Sprachen ist keine Analyse verfügbar. In den übrigen Sprachen laufen die
+  Standard-Analysen, seit September 2026 auch Transaktionsanalyse und Appraisal. Gesperrt
+  bleiben je nach Sprache einzelne Analysen (Kognitive Verzerrungen, Bibelimpuls,
+  Fehlschluss-Erkennung, im Japanischen auch GFK und Coaching).
 
 ## Die vollständige Matrix
 

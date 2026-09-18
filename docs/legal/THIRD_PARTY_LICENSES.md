@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-This project includes code adapted from the following MIT-licensed open-source projects.
+Hablará includes code adapted from the MIT-licensed projects below and ships open-source components under the Mozilla Public License 2.0 (see [MPL-2.0 components](#mpl-20-components)). These components are licensed to you under their own terms; the Hablará End-User License Agreement does not restrict them (EULA, Section 9).
 
 ---
 
@@ -116,9 +116,28 @@ SOFTWARE.
 
 ---
 
+## MPL-2.0 components
+
+The following components are licensed under the [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/). You can obtain their Source Code Form at the locations below, free of charge.
+
+| Component | Version | Modified | Source Code Form | Used for |
+|-----------|---------|----------|------------------|----------|
+| rusty_foundationmodels | 0.2.0 | **yes** | [`third-party/rusty_foundationmodels/`](../../third-party/rusty_foundationmodels/) in this repository (changes: [MODIFICATIONS.md](../../third-party/rusty_foundationmodels/MODIFICATIONS.md)) | Apple Intelligence on-device model (macOS, Apple Silicon) |
+| cssparser | 0.29.6 | no | https://crates.io/crates/cssparser/0.29.6 | via Tauri |
+| cssparser-macros | 0.6.1 | no | https://crates.io/crates/cssparser-macros/0.6.1 | via Tauri |
+| dtoa-short | 0.3.5 | no | https://crates.io/crates/dtoa-short/0.3.5 | via Tauri |
+| selectors | 0.24.0 | no | https://crates.io/crates/selectors/0.24.0 | via Tauri |
+| option-ext | 0.2.0 | no | https://crates.io/crates/option-ext/0.2.0 | via `dirs` |
+
+Dual-licensed components are used under their non-copyleft option: DOMPurify (MPL-2.0 or Apache-2.0) under Apache-2.0, JSZip (MIT or GPL-3.0-or-later) under MIT.
+
+Questions about the source code of these components: https://github.com/fidpa/hablara-releases/issues
+
+---
+
 ## Note
 
-All other dependencies are standard npm/cargo packages listed in `package.json` and `Cargo.toml`. Their licenses are available in `node_modules/` and through `cargo license`.
+All other dependencies are standard npm/cargo packages under permissive licenses (MIT, Apache-2.0, BSD, ISC and similar). Their licenses are available in `node_modules/` and through `cargo license`.
 
 The majority of Hablará's codebase is original work, including:
 - Emotion Analysis (12 audio features, dual-track fusion, ~85% accuracy)
@@ -129,4 +148,4 @@ The majority of Hablará's codebase is original work, including:
 
 ---
 
-**Version:** 1.0.0
+**Version:** 1.1.0

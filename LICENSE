@@ -69,4 +69,14 @@ By installing or using the Software, you agree to the terms of this Agreement.
    This Agreement shall be governed by the laws of the Federal Republic
    of Germany.
 
+9. OPEN-SOURCE COMPONENTS
+
+   The Software includes open-source components that are licensed to
+   you under their own license terms, not under this Agreement. The
+   restrictions in Section 2 do not apply to these components, and
+   nothing in this Agreement limits the rights those licenses grant
+   you. The components, their licenses and, where a license requires
+   it, where to obtain their source code are listed at
+   https://github.com/fidpa/hablara-releases/blob/main/docs/legal/THIRD_PARTY_LICENSES.md
+
 For inquiries: github.com/fidpa

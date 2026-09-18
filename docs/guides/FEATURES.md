@@ -235,6 +235,7 @@ Im Diktat-Modus erkennt Hablará gesprochene Satzzeichen und ersetzt sie automat
 | Modus | Datenverarbeitung | Geeignet für |
 |-------|------------------|-------------|
 | **Lokal (Standard)** | Alles auf dem Gerät (Ollama + Whisper) | Datenschutzkritische Inhalte |
+| **Apple Intelligence** | Alles auf dem Gerät (Apple Foundation Models + Whisper); App Store: bei höchstens 8 GB Arbeitsspeicher vorgewählt | Macs mit wenig Arbeitsspeicher, ohne Einrichtung |
 | **Cloud (OpenAI / Anthropic)** | Transkripte werden an externe Server übertragen | Wenn Geschwindigkeit Priorität hat |
 
 Bei Cloud-Nutzung erfordert Hablará eine explizite Zustimmung (GDPR Art. 6).

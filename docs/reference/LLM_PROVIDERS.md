@@ -3,6 +3,11 @@
 Hablará unterstützt vier LLM-Provider: Ollama (Standard, vollständig lokal),
 OpenAI, Anthropic und Mistral. Diese Seite erklärt das Setup der drei Cloud-Optionen.
 
+Auf Macs mit macOS 26 steht zusätzlich Apple Intelligence zur Wahl (auf dem Gerät, ohne
+Download und ohne API-Key, Aufnahmen bis 5 Minuten). Die App-Store-Version wählt es bei der
+Ersteinrichtung auf Macs mit höchstens 8 GB Arbeitsspeicher vor, sofern die App-Sprache
+unterstützt wird; änderbar unter Einstellungen → KI-Modelle.
+
 Für lokale Inferenz mit Ollama: [OLLAMA_SETUP.md](./OLLAMA_SETUP.md)
 
 ---
