@@ -1,6 +1,6 @@
 # Häufig gestellte Fragen (FAQ)
 
-Schnelle Lösungen für die 10 häufigsten Probleme.
+Schnelle Lösungen für die 16 häufigsten Probleme.
 
 ---
 
@@ -313,6 +313,59 @@ in das entsprechende Zeichen umgewandelt.
 
 ---
 
+## 15. Eine Analyse wurde übersprungen
+
+**Symptom:** Im Ergebnis steht bei einer Analyse „Übersprungen" mit einer kurzen Begründung,
+etwa „Zu wenig Text" oder „Keine Argumente erkennbar", statt eines Ergebnisses.
+
+**Ursache:** Der Analyse-Wächter (Pro) hat entschieden, dass der Text für diese Analyse
+nichts hergibt. Das ist kein Fehler: Eine Terminnotiz enthält keinen Konflikt, eine
+Einkaufsliste kein Argument. Übersprungen wird in zwei Fällen:
+
+- Der Text hat weniger als 10 Wörter, die Aufnahme besteht überwiegend aus Stille, oder die
+  gesprochene Sprache passt nicht zur eingestellten.
+- Bei mehreren gleichzeitig aktiven Analysen fragt ein kleines Modell zusätzlich, ob der Text
+  zur jeweiligen Analyse passt.
+
+**Lösung:**
+
+| Ziel | Vorgehen |
+|---|---|
+| Analyse trotzdem erzwingen | Einstellungen → Analyse → „Analyse-Wächter" auf **Deaktiviert** |
+| Mehr Substanz liefern | Länger und zusammenhängend sprechen; sehr kurze Aufnahmen tragen wenige Analysen |
+| Sprache prüfen | Einstellungen → Transkription: eingestellte Sprache muss zur gesprochenen passen |
+
+Ton und Thema werden nie übersprungen. Fehlt das kleine Prüfmodell oder antwortet es nicht,
+laufen alle Analysen wie ohne Wächter.
+
+**Details:** [Features – Übersprungene Analysen](./FEATURES.md#übersprungene-analysen-analyse-wächter-pro)
+
+---
+
+## 16. Hinweis „nur etwa … % Treffer" an einer Analyse
+
+**Symptom:** In den Einstellungen trägt eine Analyse den Hinweis, das gewählte Modell treffe
+in dieser Analyse nur etwa einen bestimmten Prozentsatz.
+
+**Ursache:** Der Hinweis stammt aus einer Messung mit 10 Testtexten je Sprache und
+20 Durchläufen. Er bedeutet: Das Modell antwortet zuverlässig in der richtigen Form, wählt
+aber oft die falsche Kategorie. Betroffen ist heute nur das kleinste Modell
+`qwen2.5:1.5b-custom`, dort bei der Fehlschluss-Erkennung und der Transaktionsanalyse.
+
+**Lösung:**
+
+| Situation | Vorgehen |
+|---|---|
+| Hardware trägt mehr | Einstellungen → KI-Modelle → größeres Modell wählen (`qwen3:4b-custom` ist der Standard) |
+| Hardware trägt nicht mehr | Analyse ausgeschaltet lassen oder die Ergebnisse als groben Anhaltspunkt lesen |
+| Höchste Genauigkeit nötig | Cloud-Anbieter einrichten → [Cloud-Provider](../reference/LLM_PROVIDERS.md) |
+
+Der Hinweis ist keine Sperre: Die Analyse läuft, die Entscheidung bleibt bei dir.
+
+**Details:** [Modell-Sprachkompatibilität](../reference/MODEL_COMPATIBILITY.md)
+
+---
+
 ## Weitere Hilfe
 
 **Kontakt:** Siehe [Support & Kontakt](../legal/SUPPORT.md)
@@ -326,5 +379,7 @@ in das entsprechende Zeichen umgewandelt.
 - [Aufnahme-Qualität optimieren](./RECORDING_QUALITY.md) - LED-Meter, Speech Ratio
 - [Aufnahmen verwalten](./STORAGE.md) - Storage, Export
 - [Hotkeys konfigurieren](../reference/HOTKEYS.md) - Tastenkürzel anpassen
+- [Modell-Sprachkompatibilität](../reference/MODEL_COMPATIBILITY.md) - Sperren, Latenz- und Genauigkeitshinweise
+- [KI-Anreicherungen](./FEATURES.md) - Analysen im Überblick, Analyse-Wächter
 
 

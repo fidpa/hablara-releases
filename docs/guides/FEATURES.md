@@ -148,6 +148,41 @@ Zusätzlich erkennt Hablará den Transaktionstyp: **Komplementär** (reibungslos
 
 > *Zur Selbstreflexion — kein therapeutisches Werkzeug.*
 
+### Übersprungene Analysen (Analyse-Wächter, Pro)
+
+Nicht jeder Text trägt jede Analyse. Eine Terminnotiz enthält keinen Konflikt, eine
+Einkaufsliste kein Argument. Der Analyse-Wächter erkennt solche Fälle und überspringt die
+betroffenen Analysen, statt eine Antwort zu erzwingen, die nichts aussagt.
+
+**Zwei Stufen:**
+
+1. **Immer:** Texte unter 10 Wörtern, Aufnahmen mit überwiegend Stille und Texte in einer
+   anderen als der eingestellten Sprache werden gar nicht erst geprüft.
+2. **Ab einer bestimmten Zahl aktiver Analysen:** Ein kleines Modell beantwortet in einem
+   einzigen Durchgang für jede Analyse die Frage, ob der Text dafür etwas hergibt. Die
+   Schwelle hängt vom gewählten Modell ab, weil sich der zusätzliche Aufruf erst lohnen
+   muss: `qwen3:8b-custom` ab 3 Analysen, `qwen2.5:7b-custom` ab 4, `qwen3:4b-custom` ab 5,
+   die kleineren Modelle nie. Bei Mistral gilt 3.
+
+Geprüft werden nur Emotionsanalyse, Fehlschluss-Erkennung, GFK, Kognitive Verzerrungen,
+Transaktionsanalyse und Appraisal. Ton und Thema laufen immer.
+
+**Im Zweifel läuft die Analyse.** Der Wächter überspringt nur bei klarem Befund. Antwortet
+das kleine Modell nicht oder fehlt es, laufen alle Analysen wie ohne Wächter.
+
+**Die Begründung ist eine feste Kategorie**, keine Bewertung der Person, zum Beispiel
+„Zu wenig Text", „Keine Argumente erkennbar", „Kein zwischenmenschlicher Bezug" oder
+„Kein Selbstbezug erkennbar". Übersprungene Analysen erscheinen im Ergebnis als
+„Übersprungen" mit dieser Begründung, nicht als Fehler und nicht als leeres Feld.
+
+**Einstellung:** Einstellungen → Analyse → „Analyse-Wächter" mit drei Werten:
+
+| Wert | Verhalten |
+|---|---|
+| **Automatisch** | Standard: beide Stufen wie oben beschrieben |
+| **Immer aktiv** | Die zweite Stufe läuft unabhängig von der Zahl aktiver Analysen |
+| **Deaktiviert** | Alle aktivierten Analysen laufen immer |
+
 ### Themenklassifikation
 
 Jede Aufnahme wird einer von 7 Kategorien zugeordnet:

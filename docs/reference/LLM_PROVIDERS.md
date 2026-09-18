@@ -1,7 +1,7 @@
-# Cloud LLM-Provider: OpenAI und Anthropic
+# Cloud LLM-Provider: OpenAI, Anthropic und Mistral
 
-Hablará unterstützt drei LLM-Provider: Ollama (Standard, vollständig lokal),
-OpenAI und Anthropic. Diese Seite erklärt das Setup der beiden Cloud-Optionen.
+Hablará unterstützt vier LLM-Provider: Ollama (Standard, vollständig lokal),
+OpenAI, Anthropic und Mistral. Diese Seite erklärt das Setup der drei Cloud-Optionen.
 
 Für lokale Inferenz mit Ollama: [OLLAMA_SETUP.md](./OLLAMA_SETUP.md)
 
@@ -9,7 +9,7 @@ Für lokale Inferenz mit Ollama: [OLLAMA_SETUP.md](./OLLAMA_SETUP.md)
 
 ## Wann Cloud sinnvoll ist
 
-| Kriterium | Lokal (Ollama) | Cloud (OpenAI / Anthropic) |
+| Kriterium | Lokal (Ollama) | Cloud (OpenAI / Anthropic / Mistral) |
 |-----------|---------------|---------------------------|
 | Datenschutz | ✅ Alles auf dem Gerät | ⚠️ Transkripte verlassen das Gerät |
 | Geschwindigkeit | 2–4 s | 0,3–2 s |
@@ -18,7 +18,8 @@ Für lokale Inferenz mit Ollama: [OLLAMA_SETUP.md](./OLLAMA_SETUP.md)
 | Offline-Fähigkeit | ✅ | ❌ |
 
 **Empfehlung:** Ollama für datenschutzsensible Inhalte; Cloud für maximale
-Geschwindigkeit auf allen Geräten.
+Geschwindigkeit auf allen Geräten. Wer Cloud braucht, aber innerhalb der EU bleiben will,
+nimmt Mistral (Verarbeitung in Paris).
 
 ---
 
@@ -112,16 +113,57 @@ gut, insbesondere bei komplexen deutschen Sätzen.
 
 ---
 
+## Option C: Mistral (EU)
+
+Mistral AI verarbeitet in Paris. Für wen Cloud-Geschwindigkeit nötig ist, aber eine
+Übertragung in die USA nicht in Frage kommt, ist das die naheliegende Wahl: keine
+Standardvertragsklauseln, kein Drittlandtransfer.
+
+### Account und API-Key
+
+1. Account unter [console.mistral.ai](https://console.mistral.ai/) erstellen
+2. Login → **API Keys** → „Create new key"
+3. Key kopieren – er wird nur einmal angezeigt
+4. Guthaben aufladen (Billing); für Tausende Analysen genügen wenige Euro
+
+### Einrichten in Hablará
+
+1. Einstellungen öffnen (⚙️)
+2. **LLM-Provider → Mistral** wählen
+3. Zustimmungs-Fenster bestätigen
+4. API-Key eingeben
+5. Modell auswählen (Empfehlung: `mistral-small-latest`)
+6. Speichern
+
+### Modell-Auswahl
+
+| Modell | Geschwindigkeit | Qualität | Empfehlung |
+|--------|----------------|---------|-----------|
+| `mistral-small-latest` | ⚡⚡⚡ (0,5–2 s) | ⭐⭐⭐⭐ | ✅ Standard |
+| `mistral-large-latest` | ⚡⚡ (1–3 s) | ⭐⭐⭐⭐⭐ | Höchste Qualität |
+
+### Fehlerbehebung
+
+| Problem | Lösung |
+|---------|--------|
+| „Mistral API key not configured" | API-Key in den Einstellungen erneut eingeben und speichern |
+| HTTP 429 (Rate Limit) | 60 s warten; bei dauerhaftem Limit Guthaben oder Tier prüfen |
+| Langsame Antworten (>3 s) | Zu `mistral-small-latest` wechseln oder temporär Ollama nutzen |
+
+---
+
 ## Provider-Vergleich
 
-| | Ollama | OpenAI `gpt-4o-mini` | Anthropic `claude-3-5-haiku-20241022` |
-|---|--------|---------------------|------------------------------|
-| **Kosten/1.000 Analysen** | $0 | ~$0,20 | ~$0,30 |
-| **Geschwindigkeit** | 2–4 s | 0,3–1 s | 0,3–1 s |
-| **Datenschutz** | ✅ Lokal | ⚠️ Cloud | ⚠️ Cloud |
-| **Qualität** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
-| **Offline-Fähigkeit** | ✅ | ❌ | ❌ |
-| **Setup** | Modell-Download | API-Key | API-Key |
+| | Ollama | OpenAI `gpt-4o-mini` | Anthropic `claude-3-5-haiku-20241022` | Mistral `mistral-small-latest` |
+|---|--------|---------------------|------------------------------|------------------------------|
+| **Kosten/1.000 Analysen** | $0 | ~$0,20 | ~$0,30 | ~$0,10 |
+| **Geschwindigkeit** | 2–4 s | 0,3–1 s | 0,3–1 s | 0,5–2 s |
+| **Datenschutz** | ✅ Lokal | ⚠️ Cloud (USA) | ⚠️ Cloud (USA) | ⚠️ Cloud (EU, Paris) |
+| **Qualität** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
+| **Offline-Fähigkeit** | ✅ | ❌ | ❌ | ❌ |
+| **Setup** | Modell-Download | API-Key | API-Key | API-Key |
+
+Die Kosten für Mistral sind aus den Listenpreisen der Konsole gerechnet (Stand September 2026), nicht aus einer eigenen Abrechnung.
 
 ---
 

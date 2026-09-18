@@ -1,20 +1,46 @@
 # Modell-Sprachkompatibilität
 
-Nicht jede Kombination aus Ollama-Modell und Analysesprache liefert zuverlässige
-Ergebnisse. Hablará blendet Analysen, die ein Modell in einer bestimmten Sprache
-nicht sicher beherrscht, automatisch aus (✗) oder kennzeichnet sie als eingeschränkt (⚠).
+Nicht jede Kombination aus Modell und Analysesprache liefert gleich gute Ergebnisse.
+Hablará prüft das für jede Kombination aus Analyse, Modell und Sprache und kennzeichnet
+sie in den Einstellungen unter „Analyse".
 
-## Kompatibilitätsmatrix
+## Die drei Kennzeichen
 
-Die vollständige Übersicht (7 Analysen × 4 Modelle × 13 Sprachen) mit Legende:
+| Kennzeichen | Bedeutung | Folge in der App |
+|---|---|---|
+| **Gesperrt** | Das Modell liefert in dieser Sprache keine verwertbare Antwortstruktur (unter 78 % gültige Antworten). | Die Analyse lässt sich nicht einschalten. |
+| **Langsam** | Die Antwort dauert im Mittel über 5 Sekunden, bei der Nachbesprechung über 10 Sekunden. | Die Analyse läuft, die Karte weist auf die Wartezeit hin. |
+| **Genauigkeit** | Die Antwort kommt zuverlässig, trifft aber oft die falsche Kategorie. | Die Analyse läuft, die Karte nennt die gemessene Trefferquote. |
 
-→ **https://hablara.app/technische-details**
+Gesperrt heißt: gar nicht. Die beiden anderen Kennzeichen sind Hinweise, keine Sperren;
+die Analyse läuft, und die Entscheidung bleibt bei dir.
 
-## Technische Grundlage (SSOT)
+## Was heute gilt
 
-Die Matrix wird zur Laufzeit aus dem Code gelesen — nicht aus der Website.
-Änderungen müssen daher in der Quelldatei vorgenommen werden:
+Gemessen werden 12 Analysen gegen 5 lokale Ollama-Modelle in 15 Sprachen.
 
-`src/lib/features/model-compatibility.ts`
+- **Keine Sperren mehr bei den lokalen Modellen.** Seit die App das Antwortformat als
+  Struktur vorgibt, halten alle fünf Modelle die Form in allen 15 Sprachen ein. Die
+  früheren Sperren betrafen die Form der Antwort, nicht das Sprachverständnis.
+- **Genauigkeitshinweise trägt nur das kleinste Modell** (`qwen2.5:1.5b-custom`), und zwar
+  bei der Fehlschluss-Erkennung und der Transaktionsanalyse. Es bleibt der Einstieg für
+  schwache Hardware; wer diese beiden Analysen braucht, nimmt ein größeres Modell.
+- **Langsam-Hinweise** hängen an Modell und Sprache. Tschechisch, Rumänisch und Polnisch
+  brauchen durchweg mehr Zeit als Deutsch oder Englisch.
+- **Cloud-Anbieter** (OpenAI, Anthropic, Mistral) tragen keine Einschränkungen.
+- Apple Intelligence als Anbieter ist in mehreren Sprachen gesperrt, darunter Tschechisch,
+  Polnisch, Rumänisch und Russisch.
 
-Die Website `technische-details.astro` ist eine rein visuelle Darstellung dieser Daten.
+## Die vollständige Matrix
+
+Alle Kombinationen mit Legende und Messdatum:
+
+→ **https://hablara.de/technische-details**
+
+Die App selbst zeigt dieselben Angaben dort, wo sie zählen: an der jeweiligen Analyse in
+den Einstellungen.
+
+---
+
+Weitere Informationen:
+[Ollama einrichten](./OLLAMA_SETUP.md) · [Cloud-Provider](./LLM_PROVIDERS.md) · [Features](../guides/FEATURES.md)
