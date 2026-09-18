@@ -109,7 +109,7 @@ curl -fsSL https://raw.githubusercontent.com/fidpa/hablara-releases/main/scripts
 <summary>📋 Was macht dieser Befehl?</summary>
 
 1. Installiert Ollama (falls nicht vorhanden)
-2. **Modellauswahl:** 1.5b (ultra-leicht, schwache Hardware), 3b (schnell, Standard), 7b (gute Qualität), qwen3-8b (Premium, 100% JSON)
+2. **Modellauswahl:** 1.5b (ultra-leicht, schwache Hardware), qwen3-4b (Standard), 7b (gute Qualität), qwen3-8b (Premium); empfohlen wird nach Speicherbandbreite
 3. Erstellt optimiertes Custom-Modell
 4. Verifiziert Installation
 
@@ -181,7 +181,7 @@ curl -fsSL https://raw.githubusercontent.com/fidpa/hablara-releases/main/scripts
 <summary>📋 Was macht dieser Befehl?</summary>
 
 1. Installiert Ollama (falls nicht vorhanden)
-2. **Modellauswahl:** 1.5b (ultra-leicht, schwache Hardware), 3b (schnell, Standard), 7b (gute Qualität), qwen3-8b (Premium, 100% JSON)
+2. **Modellauswahl:** 1.5b (ultra-leicht, schwache Hardware), qwen3-4b (Standard), 7b (gute Qualität), qwen3-8b (Premium); empfohlen wird nach Speicherbandbreite
 3. Erstellt optimiertes Custom-Modell
 4. Verifiziert Installation
 
@@ -296,7 +296,7 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/fidpa/hablara-releases
 <summary>📋 Was macht dieser Befehl?</summary>
 
 1. Installiert Ollama via winget (falls nicht vorhanden)
-2. **Modellauswahl:** 1.5b (ultra-leicht, schwache Hardware), 3b (schnell, Standard), 7b (gute Qualität), qwen3-8b (Premium, 100% JSON)
+2. **Modellauswahl:** 1.5b (ultra-leicht, schwache Hardware), qwen3-4b (Standard), 7b (gute Qualität), qwen3-8b (Premium); empfohlen wird nach Speicherbandbreite
 3. Erstellt optimiertes Custom-Modell
 4. Verifiziert Installation
 
@@ -538,8 +538,8 @@ Jetzt weiß ich, wie ich das angehen will."
 
 **Warum Qwen-Modelle?**
 - **Mehrsprachig trainiert:** Inkl. Deutsch
-- **4 Größen wählbar:** 1.5b (ultra-leicht), 3b (schnell, Standard), 7b (gute Qualität), qwen3:8b (Premium, höchste Qualität)
-- **JSON Compliance:** `format: "json"` API-Parameter erzwingt strukturierte Outputs auf Tokenizer-Ebene (Constrained Decoding)
+- **4 Größen wählbar:** 1.5b (ultra-leicht), qwen3:4b (Standard), 7b (gute Qualität), qwen3:8b (Premium, höchste Qualität); das frühere Standardmodell 3b bleibt als Legacy für bestehende Installationen (nicht kommerzielle Lizenz)
+- **JSON Compliance:** Jede Analyse sendet ein JSON-Schema als `format`; Ollama erzwingt daraus Struktur, Pflichtfelder und Wertemengen (Constrained Decoding)
 - **Angepasstes Modelfile:** Reduzierter Context (8K statt 32K) für beschleunigte Inferenz, Temperature 0.3 für konsistente Outputs
 
 **Warum Multi-Anbieter LLM?**
@@ -649,8 +649,8 @@ ollama --version  # Falls installiert: Springe zu Schritt 2
 
 **Schritt 2: Basis-Modell herunterladen** (einmalig)
 ```bash
-# Schnell, geringe Anforderungen (3B, ~2 GB Download - Standard)
-ollama pull qwen2.5:3b
+# Standard (Qwen3 4B, ~2.5 GB Download)
+ollama pull qwen3:4b-thinking-2507-q4_K_M
 
 # Oder: Gute Qualität (7B, ~4.7 GB Download - leistungsfähige Hardware)
 ollama pull qwen2.5:7b
@@ -658,8 +658,8 @@ ollama pull qwen2.5:7b
 
 **Schritt 3: Hablará-optimiertes Modell erstellen**
 ```bash
-# Für 3B:
-ollama create qwen2.5:3b-custom -f scripts/ollama/qwen2.5-3b-custom.modelfile
+# Für das Standardmodell:
+ollama create qwen3:4b-custom -f scripts/ollama/qwen3-4b-custom.modelfile
 
 # Für 7B:
 ollama create qwen2.5:7b-custom -f scripts/ollama/qwen2.5-7b-custom.modelfile
@@ -715,7 +715,7 @@ Hablará unterstützt vier LLM-Anbieter:
 **Linux:** Ja, vollständig unterstützt (x64 und ARM64). Debian/Ubuntu: APT Repository (empfohlen) oder .deb. Fedora/RHEL: .rpm. Universal: .AppImage. Alle Pakete im [GitHub Releases][releases].
 
 ### Wie groß ist das Ollama-Model?
-**~2 GB** (qwen2.5:3b, Standard). Weitere Varianten: 7b (~4.7 GB), qwen3:8b (~5.2 GB) - wählbar im Setup-Skript oder in den Einstellungen.
+**~2.5 GB** (qwen3:4b, Standard). Weitere Varianten: 1.5b (~1 GB), 7b (~4.7 GB), qwen3:8b (~5.2 GB) - wählbar im Setup-Skript oder in den Einstellungen.
 
 ### Wo speichert Hablará Daten?
 
@@ -872,7 +872,7 @@ Shift+D) Stille                   (Emotion,
 |-------|-------------|-------|
 | **Frontend** | Next.js 14, React 18, TailwindCSS | UI, State Management |
 | **Desktop** | Tauri 2.0, Rust 1.77+ | Native Audio, IPC, Storage |
-| **AI/ML** | whisper.cpp (german-turbo / large-v3-turbo je nach Sprache), Ollama (qwen2.5:1.5b/3b/7b, qwen3:8b), OpenAI Whisper API (Cloud, optional) | STT, LLM Enrichment |
+| **AI/ML** | whisper.cpp (german-turbo / large-v3-turbo je nach Sprache), Ollama (qwen3:4b Standard, qwen2.5:1.5b/7b, qwen3:8b), OpenAI Whisper API (Cloud, optional) | STT, LLM Enrichment |
 | **VAD** | earshot v1.0.0 (pure Rust, no_std) | Voice Activity Detection |
 | **Embedding** | paraphrase-multilingual-MiniLM-L12-v2 (ONNX INT8, 118 MB) | RAG Semantic Search |
 | **Security** | keyring-rs (OS-native Keychain) | API Key Verschlüsselung |
@@ -1001,5 +1001,5 @@ Source-Available – alle Rechte vorbehalten. Siehe [LICENSE](LICENSE) für Deta
 ---
 
 <!-- Link-Definitionen -->
-[releases]: https://github.com/fidpa/hablara/releases
-[issues]: https://github.com/fidpa/hablara/issues
+[releases]: https://github.com/fidpa/hablara-releases/releases
+[issues]: https://github.com/fidpa/hablara-releases/issues
