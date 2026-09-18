@@ -9,7 +9,7 @@
 
 .EXAMPLE
     .\setup-ollama-win.ps1
-    .\setup-ollama-win.ps1 -Model 3b
+    .\setup-ollama-win.ps1 -Model qwen3-4b
     .\setup-ollama-win.ps1 -Update
     .\setup-ollama-win.ps1 -Status
     .\setup-ollama-win.ps1 -Diagnose
@@ -22,7 +22,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('1.5b', '3b', '7b', 'qwen3-8b')]
+    [ValidateSet('1.5b', 'qwen3-4b', '3b', '7b', 'qwen3-8b')]
     [string]$Model,
 
     [switch]$Update,
@@ -48,9 +48,18 @@ $ErrorActionPreference = 'Stop'
 # Pre-initialize $script:Msg so trap can use it before Initialize-Messages is called
 $script:Msg = @{ ErrorPrefix = 'Fehler'; SetupFailed = 'Setup fehlgeschlagen' }
 
+# Modus für den trap: 'setup' | 'status' | 'diagnose' | 'cleanup'. Wird von den
+# jeweiligen Einstiegsfunktionen gesetzt (auch bei Auswahl über das Hauptmenü).
+$script:Mode = 'setup'
+
 trap {
-    if (-not $Status -and -not $Diagnose -and -not $Cleanup) {
+    # Fehlerdetail IMMER ausgeben. Ein stiller Exit 1 macht das Diagnosewerkzeug
+    # genau im Fehlerfall wertlos (Incident 003). Nur der Zusatz "Setup
+    # fehlgeschlagen" bleibt dem Setup-Modus vorbehalten.
+    if ($script:Mode -eq 'setup') {
         Write-Host "$([char]0x2717) $($script:Msg.ErrorPrefix): $($script:Msg.SetupFailed): $_" -ForegroundColor Red
+    } else {
+        Write-Host "$([char]0x2717) $($script:Msg.ErrorPrefix): $_" -ForegroundColor Red
     }
     exit 1
 }
@@ -59,9 +68,11 @@ trap {
 # Configuration
 # ============================================================================
 
-$ScriptVersion = '1.7.3'
+$ScriptVersion = '1.8.1'
 $OllamaApiUrl = 'http://localhost:11434'
 $MinOllamaVersion = '0.3.0'
+# Timeout für `ollama create` (Sekunden). Wird auch in die Meldung CustomCreateTO eingesetzt.
+$OllamaCreateTimeoutSec = 300
 
 $script:ModelName = ''
 $script:CustomModelName = ''
@@ -73,13 +84,22 @@ $script:RequiredDiskSpaceGB = 0
 # nicht-gesetzte Variable zugreifen und strict-mode failen.
 $script:RecommendedModel = ''
 
+# CustomName ist optional: fehlt er, gilt "<Name>-custom". Nötig für Basismodelle mit
+# datiertem Tag, deren Custom-Name kürzer ist (qwen3:4b-custom).
 $ModelConfigs = @{
     '1.5b'    = @{ Name = 'qwen2.5:1.5b'; Size = '~1GB';   DiskGB = 3;  RAMWarn = $false; MinRAM = 0 }
+    'qwen3-4b' = @{ Name = 'qwen3:4b-thinking-2507-q4_K_M'; Size = '~2.5GB'; DiskGB = 5; RAMWarn = $false; MinRAM = 0; CustomName = 'qwen3:4b-custom' }
     '3b'      = @{ Name = 'qwen2.5:3b';   Size = '~2GB';   DiskGB = 5;  RAMWarn = $false; MinRAM = 0 }
     '7b'      = @{ Name = 'qwen2.5:7b';   Size = '~4.7GB'; DiskGB = 10; RAMWarn = $false; MinRAM = 0 }
     'qwen3-8b' = @{ Name = 'qwen3:8b';   Size = '~5.2GB'; DiskGB = 8;  RAMWarn = $false; MinRAM = 0 }
 }
-$DefaultModel = '3b'
+$DefaultModel = 'qwen3-4b'
+
+function Get-CustomModelName {
+    param([hashtable]$Config)
+    if ($Config.ContainsKey('CustomName') -and $Config.CustomName) { return $Config.CustomName }
+    return "$($Config.Name)-custom"
+}
 
 # ============================================================================
 # Helper Functions
@@ -88,7 +108,7 @@ $DefaultModel = '3b'
 function Write-Step { param([string]$Message); Write-Host "`n==> " -ForegroundColor Blue -NoNewline; Write-Host $Message -ForegroundColor Green }
 function Write-Info { param([string]$Message); Write-Host "    $([char]0x2022) " -ForegroundColor Yellow -NoNewline; Write-Host $Message }
 function Write-Success { param([string]$Message); Write-Host "    $([char]0x2713) " -ForegroundColor Green -NoNewline; Write-Host $Message }
-function Write-Warning { param([string]$Message); Write-Host "    $([char]0x26A0) " -ForegroundColor Yellow -NoNewline; Write-Host $Message }
+function Write-Warn { param([string]$Message); Write-Host "    $([char]0x26A0) " -ForegroundColor Yellow -NoNewline; Write-Host $Message }
 function Write-Err { param([string]$Message); Write-Host "$([char]0x2717) $($script:Msg.ErrorPrefix): $Message" -ForegroundColor Red }
 
 # ============================================================================
@@ -152,7 +172,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Choose a model:'
             $script:Msg.ChoicePrompt       = 'Choice [1-4, Enter=1]'
-            $script:Msg.Model3B            = 'Optimal overall performance [Default]'
+            $script:Msg.Model4B            = 'Optimal overall performance [Default]'
             $script:Msg.Model1_5B          = 'Fast, limited accuracy [Entry-level]'
             $script:Msg.Model7B            = 'Requires high-performance hardware'
             $script:Msg.ModelQwen3         = 'Best argumentation analysis [Premium]'
@@ -165,7 +185,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Choice [1-4, Enter=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Invalid model variant: {0}'
-            $script:Msg.ValidVariants      = 'Valid variants: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Valid variants: 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'This model recommends at least {0}GB RAM'
             $script:Msg.RamWarnSys         = 'Your system has {0}GB RAM'
             $script:Msg.ContinueAnyway     = 'Continue anyway?'
@@ -249,7 +269,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = 'Waiting for Ollama app auto-start...'
             $script:Msg.RebootRequired     = 'A computer restart may be required'
             $script:Msg.OllamaPathError    = 'Ollama installed but CLI not in PATH. Open a new terminal or check PATH.'
-            $script:Msg.ServerStartWarn    = 'Server start failed - start manually: ollama serve'
             $script:Msg.ManualInstall      = 'Please install Ollama manually: https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Then run this script again.'
             $script:Msg.OllamaFound        = 'Ollama found: {0}'
@@ -288,11 +307,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Using default configuration'
             $script:Msg.ConfigReadError    = 'Could not read configuration: {0}'
             $script:Msg.CustomCreating      = 'Creating Hablará model {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create timeout after 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create timeout after {0}s'
             $script:Msg.CustomCreateFail   = 'Hablará model could not be {0}'
             $script:Msg.CustomDone         = 'Hablará model {0}: {1}'
             $script:Msg.ConfigError        = 'Configuration error'
-            $script:Msg.PermsWarn          = 'Could not set restrictive permissions: {0}'
             $script:Msg.VerbCreated        = 'created'
             $script:Msg.VerbUpdated        = 'updated'
             # Verify
@@ -313,7 +331,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Ollama configuration:'
             $script:Msg.ModelLabel         = '  Model:    '
             $script:Msg.BaseUrlLabel       = '  Base URL: '
-            $script:Msg.Docs               = 'Documentation: https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Documentation: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'Testing model...'
             $script:Msg.TestOk             = 'Model test successful'
@@ -344,7 +362,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Usage:'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [OPTIONS]'
             $script:Msg.HelpOptions        = 'Options:'
-            $script:Msg.HelpOptModel       = '  -Model VARIANT        Choose model variant: 1.5b, 3b, 7b, qwen3-8b (default: 3b)'
+            $script:Msg.HelpOptModel       = '  -Model VARIANT        Choose model variant: 1.5b, qwen3-4b, 7b, qwen3-8b (default: qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Recreate Hablará custom model (update Modelfile)'
             $script:Msg.HelpOptStatus      = '  -Status               Health check: 7-point Ollama installation check'
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Generate support report (plain text, copyable)'
@@ -354,7 +372,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Without options, an interactive menu starts.'
             $script:Msg.HelpVariants       = 'Model variants:'
             $script:Msg.HelpExamples       = 'Examples:'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       Install 3b variant'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  Install qwen3-4b variant'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Update custom model'
             $script:Msg.HelpExStatus       = '  .\setup-ollama-win.ps1 -Status         Check installation'
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Create bug report'
@@ -392,7 +410,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Elige un modelo:'
             $script:Msg.ChoicePrompt       = 'Selección [1-4, Enter=1]'
-            $script:Msg.Model3B            = 'Rendimiento general óptimo [Por defecto]'
+            $script:Msg.Model4B            = 'Rendimiento general óptimo [Por defecto]'
             $script:Msg.Model1_5B          = 'Rápido, precisión limitada [Básico]'
             $script:Msg.Model7B            = 'Requiere hardware de alto rendimiento'
             $script:Msg.ModelQwen3         = 'Mejor análisis de argumentación [Premium]'
@@ -405,7 +423,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Selección [1-4, Enter=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Variante de modelo no válida: {0}'
-            $script:Msg.ValidVariants      = 'Variantes válidas: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Variantes válidas: 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'Este modelo recomienda al menos {0}GB de RAM'
             $script:Msg.RamWarnSys         = 'Tu sistema tiene {0}GB de RAM'
             $script:Msg.ContinueAnyway     = '¿Continuar de todas formas?'
@@ -489,7 +507,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = 'Esperando el inicio automático de la app Ollama...'
             $script:Msg.RebootRequired     = 'Es posible que se requiera reiniciar el equipo'
             $script:Msg.OllamaPathError    = 'Ollama instalado, pero CLI no está en PATH. Abre un nuevo terminal o comprueba PATH.'
-            $script:Msg.ServerStartWarn    = 'Inicio del servidor fallido - inicia manualmente: ollama serve'
             $script:Msg.ManualInstall      = 'Instala Ollama manualmente: https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Luego ejecuta este script de nuevo.'
             $script:Msg.OllamaFound        = 'Ollama encontrado: {0}'
@@ -528,11 +545,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Usando configuración por defecto'
             $script:Msg.ConfigReadError    = 'No se pudo leer la configuración: {0}'
             $script:Msg.CustomCreating      = 'Creando modelo Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create superó el tiempo límite de 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create superó el tiempo límite de {0}s'
             $script:Msg.CustomCreateFail   = 'El modelo Hablará no pudo ser {0}'
             $script:Msg.CustomDone         = 'Modelo Hablará {0}: {1}'
             $script:Msg.ConfigError        = 'Error de configuración'
-            $script:Msg.PermsWarn          = 'No se pudieron establecer permisos restrictivos: {0}'
             $script:Msg.VerbCreated        = 'creado'
             $script:Msg.VerbUpdated        = 'actualizado'
             # Verify
@@ -553,7 +569,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Configuración de Ollama:'
             $script:Msg.ModelLabel         = '  Modelo:   '
             $script:Msg.BaseUrlLabel       = '  Base URL: '
-            $script:Msg.Docs               = 'Documentación: https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Documentación: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'Probando modelo...'
             $script:Msg.TestOk             = 'Prueba del modelo exitosa'
@@ -584,7 +600,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Uso:'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [OPCIONES]'
             $script:Msg.HelpOptions        = 'Opciones:'
-            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Elegir variante de modelo: 1.5b, 3b, 7b, qwen3-8b (por defecto: 3b)'
+            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Elegir variante de modelo: 1.5b, qwen3-4b, 7b, qwen3-8b (por defecto: qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Recrear modelo personalizado Hablará (actualizar Modelfile)'
             $script:Msg.HelpOptStatus      = '  -Status               Health check: comprobación de 7 puntos de la instalación de Ollama'
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Generar informe de soporte (texto plano, copiable)'
@@ -594,7 +610,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Sin opciones, se inicia un menú interactivo.'
             $script:Msg.HelpVariants       = 'Variantes de modelo:'
             $script:Msg.HelpExamples       = 'Ejemplos:'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       Instalar variante 3b'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  Instalar variante qwen3-4b'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Actualizar modelo personalizado'
             $script:Msg.HelpExStatus       = '  .\setup-ollama-win.ps1 -Status         Comprobar instalación'
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Crear informe de error'
@@ -632,7 +648,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Choisissez un modèle :'
             $script:Msg.ChoicePrompt       = 'Sélection [1-4, Entrée=1]'
-            $script:Msg.Model3B            = 'Performance optimale [Par défaut]'
+            $script:Msg.Model4B            = 'Performance optimale [Par défaut]'
             $script:Msg.Model1_5B          = 'Rapide, précision limitée [Entrée de gamme]'
             $script:Msg.Model7B            = 'Nécessite du matériel haute performance'
             $script:Msg.ModelQwen3         = 'Meilleure analyse d''argumentation [Premium]'
@@ -645,7 +661,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Sélection [1-4, Entrée=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Variante de modèle invalide : {0}'
-            $script:Msg.ValidVariants      = 'Variantes valides : qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Variantes valides : 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'Ce modèle recommande au moins {0} Go de RAM'
             $script:Msg.RamWarnSys         = 'Votre système dispose de {0} Go de RAM'
             $script:Msg.ContinueAnyway     = 'Continuer quand même ?'
@@ -729,7 +745,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = "Attente du démarrage automatique de l'app Ollama..."
             $script:Msg.RebootRequired     = "Un redémarrage de l'ordinateur peut être nécessaire"
             $script:Msg.OllamaPathError    = 'Ollama installé, mais CLI introuvable dans le PATH. Ouvrez un nouveau terminal ou vérifiez le PATH.'
-            $script:Msg.ServerStartWarn    = 'Échec du démarrage du serveur - démarrer manuellement : ollama serve'
             $script:Msg.ManualInstall      = 'Installez Ollama manuellement : https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Relancez ensuite ce script.'
             $script:Msg.OllamaFound        = 'Ollama trouvé : {0}'
@@ -768,11 +783,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Utilisation de la configuration par défaut'
             $script:Msg.ConfigReadError    = 'Impossible de lire la configuration : {0}'
             $script:Msg.CustomCreating      = 'Création du modèle Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create a dépassé le délai de 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create a dépassé le délai de {0}s'
             $script:Msg.CustomCreateFail   = 'Le modèle Hablará n''a pas pu être {0}'
             $script:Msg.CustomDone         = 'Modèle Hablará {0} : {1}'
             $script:Msg.ConfigError        = 'Erreur de configuration'
-            $script:Msg.PermsWarn          = 'Impossible de définir des autorisations restrictives : {0}'
             $script:Msg.VerbCreated        = 'créé'
             $script:Msg.VerbUpdated        = 'mis à jour'
             # Verify
@@ -793,7 +807,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Configuration Ollama :'
             $script:Msg.ModelLabel         = '  Modèle :   '
             $script:Msg.BaseUrlLabel       = '  Base URL : '
-            $script:Msg.Docs               = 'Documentation : https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Documentation : https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'Test du modèle...'
             $script:Msg.TestOk             = 'Test du modèle réussi'
@@ -824,7 +838,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Utilisation :'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [OPTIONS]'
             $script:Msg.HelpOptions        = 'Options :'
-            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Choisir la variante : 1.5b, 3b, 7b, qwen3-8b (par défaut : 3b)'
+            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Choisir la variante : 1.5b, qwen3-4b, 7b, qwen3-8b (par défaut : qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Recréer le modèle Hablará (mettre à jour le Modelfile)'
             $script:Msg.HelpOptStatus      = '  -Status               Vérification : contrôle en 7 points de l''installation Ollama'
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Générer un rapport d''assistance (texte brut, copiable)'
@@ -834,7 +848,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Sans options, un menu interactif démarre.'
             $script:Msg.HelpVariants       = 'Variantes de modèle :'
             $script:Msg.HelpExamples       = 'Exemples :'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       Installer la variante 3b'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  Installer la variante qwen3-4b'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Mettre à jour le modèle personnalisé'
             $script:Msg.HelpExStatus       = '  .\setup-ollama-win.ps1 -Status         Vérifier l''installation'
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Créer un rapport de bug'
@@ -872,7 +886,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Scegli un modello:'
             $script:Msg.ChoicePrompt       = 'Selezione [1-4, Invio=1]'
-            $script:Msg.Model3B            = 'Prestazioni generali ottimali [Predefinito]'
+            $script:Msg.Model4B            = 'Prestazioni generali ottimali [Predefinito]'
             $script:Msg.Model1_5B          = 'Veloce, precisione limitata [Base]'
             $script:Msg.Model7B            = 'Richiede hardware ad alte prestazioni'
             $script:Msg.ModelQwen3         = "Migliore analisi dell'argomentazione [Premium]"
@@ -885,7 +899,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Selezione [1-4, Invio=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Variante di modello non valida: {0}'
-            $script:Msg.ValidVariants      = 'Varianti valide: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Varianti valide: 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'Questo modello richiede almeno {0}GB di RAM'
             $script:Msg.RamWarnSys         = 'Il tuo sistema ha {0}GB di RAM'
             $script:Msg.ContinueAnyway     = 'Continuare comunque?'
@@ -969,7 +983,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = "Attesa dell'avvio automatico dell'app Ollama..."
             $script:Msg.RebootRequired     = 'Potrebbe essere necessario riavviare il computer'
             $script:Msg.OllamaPathError    = 'Ollama installato, ma CLI non è nel PATH. Aprire un nuovo terminale o verificare il PATH.'
-            $script:Msg.ServerStartWarn    = 'Avvio del server fallito - avviare manualmente: ollama serve'
             $script:Msg.ManualInstall      = 'Installare Ollama manualmente: https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Poi eseguire di nuovo questo script.'
             $script:Msg.OllamaFound        = 'Ollama trovato: {0}'
@@ -1008,11 +1021,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Utilizzo della configurazione predefinita'
             $script:Msg.ConfigReadError    = 'Impossibile leggere la configurazione: {0}'
             $script:Msg.CustomCreating      = 'Creazione del modello Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create ha superato il tempo massimo di 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create ha superato il tempo massimo di {0}s'
             $script:Msg.CustomCreateFail   = 'Il modello Hablará non ha potuto essere {0}'
             $script:Msg.CustomDone         = 'Modello Hablará {0}: {1}'
             $script:Msg.ConfigError        = 'Errore di configurazione'
-            $script:Msg.PermsWarn          = 'Impossibile impostare autorizzazioni restrittive: {0}'
             $script:Msg.VerbCreated        = 'creato'
             $script:Msg.VerbUpdated        = 'aggiornato'
             # Verify
@@ -1033,7 +1045,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Configurazione Ollama:'
             $script:Msg.ModelLabel         = '  Modello:   '
             $script:Msg.BaseUrlLabel       = '  Base URL: '
-            $script:Msg.Docs               = 'Documentazione: https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Documentazione: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'Test del modello...'
             $script:Msg.TestOk             = 'Test del modello riuscito'
@@ -1064,7 +1076,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Utilizzo:'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [OPZIONI]'
             $script:Msg.HelpOptions        = 'Opzioni:'
-            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Scegli la variante: 1.5b, 3b, 7b, qwen3-8b (predefinito: 3b)'
+            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Scegli la variante: 1.5b, qwen3-4b, 7b, qwen3-8b (predefinito: qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Ricreare il modello Hablará (aggiornare il Modelfile)'
             $script:Msg.HelpOptStatus      = "  -Status               Verifica: controllo in 7 punti dell'installazione Ollama"
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Generare rapporto di supporto (testo normale, copiabile)'
@@ -1074,7 +1086,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Senza opzioni, viene avviato un menu interattivo.'
             $script:Msg.HelpVariants       = 'Varianti del modello:'
             $script:Msg.HelpExamples       = 'Esempi:'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       Installare la variante 3b'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  Installare la variante qwen3-4b'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Aggiornare il modello personalizzato'
             $script:Msg.HelpExStatus       = "  .\setup-ollama-win.ps1 -Status         Verificare l'installazione"
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Creare rapporto di bug'
@@ -1112,7 +1124,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Kies een model:'
             $script:Msg.ChoicePrompt       = 'Keuze [1-4, Enter=1]'
-            $script:Msg.Model3B            = 'Optimale algehele prestaties [Standaard]'
+            $script:Msg.Model4B            = 'Optimale algehele prestaties [Standaard]'
             $script:Msg.Model1_5B          = 'Snel, beperkte nauwkeurigheid [Instap]'
             $script:Msg.Model7B            = 'Vereist krachtige hardware'
             $script:Msg.ModelQwen3         = 'Beste argumentatieanalyse [Premium]'
@@ -1125,7 +1137,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Keuze [1-4, Enter=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Ongeldige modelvariante: {0}'
-            $script:Msg.ValidVariants      = 'Geldige varianten: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Geldige varianten: 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'Dit model vereist minimaal {0}GB RAM'
             $script:Msg.RamWarnSys         = 'Uw systeem heeft {0}GB RAM'
             $script:Msg.ContinueAnyway     = 'Toch doorgaan?'
@@ -1209,7 +1221,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = 'Wachten op automatische start van de Ollama-app...'
             $script:Msg.RebootRequired     = 'Mogelijk is een herstart van de computer vereist'
             $script:Msg.OllamaPathError    = 'Ollama geïnstalleerd maar CLI niet in PATH. Open een nieuwe terminal of controleer PATH.'
-            $script:Msg.ServerStartWarn    = 'Server starten mislukt - handmatig starten: ollama serve'
             $script:Msg.ManualInstall      = 'Installeer Ollama handmatig: https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Voer dit script daarna opnieuw uit.'
             $script:Msg.OllamaFound        = 'Ollama gevonden: {0}'
@@ -1248,11 +1259,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Standaardconfiguratie gebruiken'
             $script:Msg.ConfigReadError    = 'Configuratie kon niet worden gelezen: {0}'
             $script:Msg.CustomCreating      = 'Hablará-model {0} aanmaken...'
-            $script:Msg.CustomCreateTO     = 'ollama create time-out na 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create time-out na {0}s'
             $script:Msg.CustomCreateFail   = 'Hablará-model kon niet worden {0}'
             $script:Msg.CustomDone         = 'Hablará-model {0}: {1}'
             $script:Msg.ConfigError        = 'Configuratiefout'
-            $script:Msg.PermsWarn          = 'Konden geen beperkende rechten instellen: {0}'
             $script:Msg.VerbCreated        = 'aangemaakt'
             $script:Msg.VerbUpdated        = 'bijgewerkt'
             # Verify
@@ -1273,7 +1283,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Ollama-configuratie:'
             $script:Msg.ModelLabel         = '  Model:    '
             $script:Msg.BaseUrlLabel       = '  Base URL: '
-            $script:Msg.Docs               = 'Documentatie: https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Documentatie: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'Model testen...'
             $script:Msg.TestOk             = 'Modeltest geslaagd'
@@ -1304,7 +1314,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Gebruik:'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [OPTIES]'
             $script:Msg.HelpOptions        = 'Opties:'
-            $script:Msg.HelpOptModel       = '  -Model VARIANT        Modelvariante kiezen: 1.5b, 3b, 7b, qwen3-8b (standaard: 3b)'
+            $script:Msg.HelpOptModel       = '  -Model VARIANT        Modelvariante kiezen: 1.5b, qwen3-4b, 7b, qwen3-8b (standaard: qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Hablará-aangepast model opnieuw aanmaken (Modelfile bijwerken)'
             $script:Msg.HelpOptStatus      = '  -Status               Statuscontrole: 7-punts controle van de Ollama-installatie'
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Ondersteuningsrapport genereren (platte tekst, kopieerbaar)'
@@ -1314,7 +1324,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Zonder opties wordt een interactief menu gestart.'
             $script:Msg.HelpVariants       = 'Modelvarianten:'
             $script:Msg.HelpExamples       = 'Voorbeelden:'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       3b-variant installeren'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  qwen3-4b-variant installeren'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Aangepast model bijwerken'
             $script:Msg.HelpExStatus       = '  .\setup-ollama-win.ps1 -Status         Installatie controleren'
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Bugrapport aanmaken'
@@ -1352,7 +1362,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Escolha um modelo:'
             $script:Msg.ChoicePrompt       = 'Opção [1-4, Enter=1]'
-            $script:Msg.Model3B            = 'Melhor desempenho geral [Padrão]'
+            $script:Msg.Model4B            = 'Melhor desempenho geral [Padrão]'
             $script:Msg.Model1_5B          = 'Rápido, precisão limitada [Básico]'
             $script:Msg.Model7B            = 'Requer hardware potente'
             $script:Msg.ModelQwen3         = 'Melhor análise de argumentação [Premium]'
@@ -1365,7 +1375,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Opção [1-4, Enter=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Variante de modelo inválida: {0}'
-            $script:Msg.ValidVariants      = 'Variantes válidas: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Variantes válidas: 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'Este modelo requer pelo menos {0}GB de RAM'
             $script:Msg.RamWarnSys         = 'O seu sistema tem {0}GB de RAM'
             $script:Msg.ContinueAnyway     = 'Continuar mesmo assim?'
@@ -1449,7 +1459,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = 'Aguardando o início automático da app Ollama...'
             $script:Msg.RebootRequired     = 'Pode ser necessário reiniciar o computador'
             $script:Msg.OllamaPathError    = 'Ollama instalado mas CLI não está no PATH. Abra um novo terminal ou verifique o PATH.'
-            $script:Msg.ServerStartWarn    = 'Falha ao iniciar o servidor - iniciar manualmente: ollama serve'
             $script:Msg.ManualInstall      = 'Instale o Ollama manualmente: https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Depois execute este script novamente.'
             $script:Msg.OllamaFound        = 'Ollama encontrado: {0}'
@@ -1488,11 +1497,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'A utilizar a configuração padrão'
             $script:Msg.ConfigReadError    = 'Não foi possível ler a configuração: {0}'
             $script:Msg.CustomCreating      = 'A criar o modelo Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create atingiu o tempo limite de 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create atingiu o tempo limite de {0}s'
             $script:Msg.CustomCreateFail   = 'Não foi possível {0} o modelo Hablará'
             $script:Msg.CustomDone         = 'Modelo Hablará {0}: {1}'
             $script:Msg.ConfigError        = 'Erro de configuração'
-            $script:Msg.PermsWarn          = 'Não foi possível definir permissões restritivas: {0}'
             $script:Msg.VerbCreated        = 'criado'
             $script:Msg.VerbUpdated        = 'atualizado'
             # Verify
@@ -1513,7 +1521,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Configuração do Ollama:'
             $script:Msg.ModelLabel         = '  Modelo:    '
             $script:Msg.BaseUrlLabel       = '  Base URL: '
-            $script:Msg.Docs               = 'Documentação: https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Documentação: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'A testar o modelo...'
             $script:Msg.TestOk             = 'Teste do modelo bem-sucedido'
@@ -1544,7 +1552,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Uso:'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [OPÇÕES]'
             $script:Msg.HelpOptions        = 'Opções:'
-            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Escolher variante: 1.5b, 3b, 7b, qwen3-8b (padrão: 3b)'
+            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Escolher variante: 1.5b, qwen3-4b, 7b, qwen3-8b (padrão: qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Recriar o modelo personalizado Hablará (atualizar Modelfile)'
             $script:Msg.HelpOptStatus      = '  -Status               Verificação de status: 7 pontos de verificação da instalação do Ollama'
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Gerar relatório de suporte (texto simples, copiável)'
@@ -1554,7 +1562,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Sem opções, é iniciado um menu interativo.'
             $script:Msg.HelpVariants       = 'Variantes de modelos:'
             $script:Msg.HelpExamples       = 'Exemplos:'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       Instalar variante 3b'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  Instalar variante qwen3-4b'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Atualizar modelo personalizado'
             $script:Msg.HelpExStatus       = '  .\setup-ollama-win.ps1 -Status         Verificar instalação'
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Criar relatório de erros'
@@ -1592,7 +1600,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Wybierz model:'
             $script:Msg.ChoicePrompt       = 'Wybór [1-4, Enter=1]'
-            $script:Msg.Model3B            = 'Najlepsza ogólna wydajność [Domyślny]'
+            $script:Msg.Model4B            = 'Najlepsza ogólna wydajność [Domyślny]'
             $script:Msg.Model1_5B          = 'Szybki, ograniczona dokładność [Podstawowy]'
             $script:Msg.Model7B            = 'Wymaga wydajnego sprzętu'
             $script:Msg.ModelQwen3         = 'Najlepsza analiza argumentów [Premium]'
@@ -1605,7 +1613,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Wybór [1-4, Enter=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Nieprawidłowy wariant modelu: {0}'
-            $script:Msg.ValidVariants      = 'Prawidłowe warianty: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Prawidłowe warianty: 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'Ten model wymaga co najmniej {0}GB pamięci RAM'
             $script:Msg.RamWarnSys         = 'Twój system ma {0}GB pamięci RAM'
             $script:Msg.ContinueAnyway     = 'Kontynuować mimo to?'
@@ -1689,7 +1697,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = 'Oczekiwanie na automatyczne uruchomienie aplikacji Ollama...'
             $script:Msg.RebootRequired     = 'Może być konieczne ponowne uruchomienie komputera'
             $script:Msg.OllamaPathError    = 'Ollama zainstalowane, ale CLI nie jest w PATH. Otwórz nowy terminal lub sprawdź PATH.'
-            $script:Msg.ServerStartWarn    = 'Nie udało się uruchomić serwera — uruchom ręcznie: ollama serve'
             $script:Msg.ManualInstall      = 'Zainstaluj Ollama ręcznie: https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Następnie uruchom ponownie ten skrypt.'
             $script:Msg.OllamaFound        = 'Znaleziono Ollama: {0}'
@@ -1728,11 +1735,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Używanie domyślnej konfiguracji'
             $script:Msg.ConfigReadError    = 'Nie można odczytać konfiguracji: {0}'
             $script:Msg.CustomCreating      = 'Tworzenie modelu Hablará {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create przekroczył limit czasu 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create przekroczył limit czasu {0}s'
             $script:Msg.CustomCreateFail   = 'Nie udało się {0} modelu Hablará'
             $script:Msg.CustomDone         = 'Model Hablará {0}: {1}'
             $script:Msg.ConfigError        = 'Błąd konfiguracji'
-            $script:Msg.PermsWarn          = 'Nie można ustawić restrykcyjnych uprawnień: {0}'
             $script:Msg.VerbCreated        = 'utworzony'
             $script:Msg.VerbUpdated        = 'zaktualizowany'
             # Verify
@@ -1753,7 +1759,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Konfiguracja Ollama:'
             $script:Msg.ModelLabel         = '  Model:    '
             $script:Msg.BaseUrlLabel       = '  Base URL: '
-            $script:Msg.Docs               = 'Dokumentacja: https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Dokumentacja: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'Testowanie modelu...'
             $script:Msg.TestOk             = 'Test modelu zakończony pomyślnie'
@@ -1784,7 +1790,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Użycie:'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [OPCJE]'
             $script:Msg.HelpOptions        = 'Opcje:'
-            $script:Msg.HelpOptModel       = '  -Model WARIANT        Wybierz wariant: 1.5b, 3b, 7b, qwen3-8b (domyślny: 3b)'
+            $script:Msg.HelpOptModel       = '  -Model WARIANT        Wybierz wariant: 1.5b, qwen3-4b, 7b, qwen3-8b (domyślny: qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Odtwórz niestandardowy model Hablará (aktualizacja Modelfile)'
             $script:Msg.HelpOptStatus      = '  -Status               Sprawdzenie statusu: 7 punktów kontrolnych instalacji Ollama'
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Generuj raport pomocy technicznej (tekst, do skopiowania)'
@@ -1794,7 +1800,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Bez opcji uruchamiany jest interaktywny menu.'
             $script:Msg.HelpVariants       = 'Warianty modeli:'
             $script:Msg.HelpExamples       = 'Przykłady:'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       Zainstaluj wariant 3b'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  Zainstaluj wariant qwen3-4b'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Zaktualizuj niestandardowy model'
             $script:Msg.HelpExStatus       = '  .\setup-ollama-win.ps1 -Status         Sprawdź instalację'
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Utwórz raport błędów'
@@ -1832,7 +1838,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Välj en modell:'
             $script:Msg.ChoicePrompt       = 'Val [1-4, Enter=1]'
-            $script:Msg.Model3B            = 'Optimal helhetsprestanda [Standard]'
+            $script:Msg.Model4B            = 'Optimal helhetsprestanda [Standard]'
             $script:Msg.Model1_5B          = 'Snabb, begränsad noggrannhet [Grundnivå]'
             $script:Msg.Model7B            = 'Kräver kraftfull hårdvara'
             $script:Msg.ModelQwen3         = 'Bästa argumentationsanalys [Premium]'
@@ -1845,7 +1851,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Val [1-4, Enter=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Ogiltig modellvariant: {0}'
-            $script:Msg.ValidVariants      = 'Giltiga varianter: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Giltiga varianter: 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'Den här modellen rekommenderar minst {0}GB RAM'
             $script:Msg.RamWarnSys         = 'Ditt system har {0}GB RAM'
             $script:Msg.ContinueAnyway     = 'Fortsätt ändå?'
@@ -1929,7 +1935,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = 'Väntar på automatisk start av Ollama-appen...'
             $script:Msg.RebootRequired     = 'En omstart av datorn kan krävas'
             $script:Msg.OllamaPathError    = 'Ollama installerat men CLI inte i PATH. Öppna en ny terminal eller kontrollera PATH.'
-            $script:Msg.ServerStartWarn    = 'Serverstart misslyckades – starta manuellt: ollama serve'
             $script:Msg.ManualInstall      = 'Installera Ollama manuellt: https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Kör sedan det här skriptet igen.'
             $script:Msg.OllamaFound        = 'Ollama hittad: {0}'
@@ -1968,11 +1973,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Använder standardkonfiguration'
             $script:Msg.ConfigReadError    = 'Kunde inte läsa konfiguration: {0}'
             $script:Msg.CustomCreating      = 'Skapar Hablará-modell {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create timeout efter 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create timeout efter {0}s'
             $script:Msg.CustomCreateFail   = 'Hablará-modell kunde inte {0}'
             $script:Msg.CustomDone         = 'Hablará-modell {0}: {1}'
             $script:Msg.ConfigError        = 'Konfigurationsfel'
-            $script:Msg.PermsWarn          = 'Kunde inte sätta begränsade behörigheter: {0}'
             $script:Msg.VerbCreated        = 'skapad'
             $script:Msg.VerbUpdated        = 'uppdaterad'
             # Verify
@@ -1993,7 +1997,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Ollama-konfiguration:'
             $script:Msg.ModelLabel         = '  Modell:    '
             $script:Msg.BaseUrlLabel       = '  Bas-URL:   '
-            $script:Msg.Docs               = 'Dokumentation: https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Dokumentation: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'Testar modell...'
             $script:Msg.TestOk             = 'Modelltest lyckades'
@@ -2024,7 +2028,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Användning:'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [ALTERNATIV]'
             $script:Msg.HelpOptions        = 'Alternativ:'
-            $script:Msg.HelpOptModel       = '  -Model VARIANT        Välj modellvariant: 1.5b, 3b, 7b, qwen3-8b (standard: 3b)'
+            $script:Msg.HelpOptModel       = '  -Model VARIANT        Välj modellvariant: 1.5b, qwen3-4b, 7b, qwen3-8b (standard: qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Återskapa Hablará anpassad modell (uppdatera Modelfile)'
             $script:Msg.HelpOptStatus      = '  -Status               Hälsokontroll: 7-punkts Ollama-installationskontroll'
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Generera supportrapport (klartext, kopierbar)'
@@ -2034,7 +2038,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Utan alternativ startar en interaktiv meny.'
             $script:Msg.HelpVariants       = 'Modellvarianter:'
             $script:Msg.HelpExamples       = 'Exempel:'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       Installera 3b-variant'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  Installera qwen3-4b-variant'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Uppdatera anpassad modell'
             $script:Msg.HelpExStatus       = '  .\setup-ollama-win.ps1 -Status         Kontrollera installation'
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Skapa felrapport'
@@ -2072,7 +2076,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Vælg en model:'
             $script:Msg.ChoicePrompt       = 'Valg [1-4, Enter=1]'
-            $script:Msg.Model3B            = 'Bedste samlede ydelse [Standard]'
+            $script:Msg.Model4B            = 'Bedste samlede ydelse [Standard]'
             $script:Msg.Model1_5B          = 'Hurtig, begrænset præcision [Grundlæggende]'
             $script:Msg.Model7B            = 'Kræver kraftfuld hardware'
             $script:Msg.ModelQwen3         = 'Bedste argumentationsanalyse [Premium]'
@@ -2085,7 +2089,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Valg [1-4, Enter=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Ugyldig modelvariant: {0}'
-            $script:Msg.ValidVariants      = 'Gyldige varianter: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Gyldige varianter: 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'Denne model anbefaler mindst {0}GB RAM'
             $script:Msg.RamWarnSys         = 'Dit system har {0}GB RAM'
             $script:Msg.ContinueAnyway     = 'Fortsæt alligevel?'
@@ -2169,7 +2173,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = 'Venter på automatisk start af Ollama-appen...'
             $script:Msg.RebootRequired     = 'En genstart af computeren kan være nødvendig'
             $script:Msg.OllamaPathError    = 'Ollama installeret, men CLI er ikke i PATH. Åbn en ny terminal eller kontrollér PATH.'
-            $script:Msg.ServerStartWarn    = 'Serverstart mislykkedes – start manuelt: ollama serve'
             $script:Msg.ManualInstall      = 'Installer Ollama manuelt: https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Kør derefter dette script igen.'
             $script:Msg.OllamaFound        = 'Ollama fundet: {0}'
@@ -2208,11 +2211,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Bruger standardkonfiguration'
             $script:Msg.ConfigReadError    = 'Kunne ikke læse konfiguration: {0}'
             $script:Msg.CustomCreating      = 'Opretter Hablará-model {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create timeout efter 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create timeout efter {0}s'
             $script:Msg.CustomCreateFail   = 'Hablará-model kunne ikke {0}'
             $script:Msg.CustomDone         = 'Hablará-model {0}: {1}'
             $script:Msg.ConfigError        = 'Konfigurationsfejl'
-            $script:Msg.PermsWarn          = 'Kunne ikke angive begrænsede tilladelser: {0}'
             $script:Msg.VerbCreated        = 'oprettet'
             $script:Msg.VerbUpdated        = 'opdateret'
             # Verify
@@ -2233,7 +2235,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Ollama-konfiguration:'
             $script:Msg.ModelLabel         = '  Model:     '
             $script:Msg.BaseUrlLabel       = '  Basis-URL: '
-            $script:Msg.Docs               = 'Dokumentation: https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Dokumentation: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'Tester model...'
             $script:Msg.TestOk             = 'Modeltest lykkedes'
@@ -2264,7 +2266,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Brug:'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [TILVALG]'
             $script:Msg.HelpOptions        = 'Tilvalg:'
-            $script:Msg.HelpOptModel       = '  -Model VARIANT        Vælg modelvariant: 1.5b, 3b, 7b, qwen3-8b (standard: 3b)'
+            $script:Msg.HelpOptModel       = '  -Model VARIANT        Vælg modelvariant: 1.5b, qwen3-4b, 7b, qwen3-8b (standard: qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Gengenerér Hablará tilpasset model (opdatér Modelfile)'
             $script:Msg.HelpOptStatus      = '  -Status               Sundhedstjek: 7-punkts Ollama-installationskontrol'
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Generér supportrapport (klartekst, kopierbar)'
@@ -2274,7 +2276,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Uden tilvalg startes en interaktiv menu.'
             $script:Msg.HelpVariants       = 'Modelvarianter:'
             $script:Msg.HelpExamples       = 'Eksempler:'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       Installer 3b-variant'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  Installer qwen3-4b-variant'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Opdatér tilpasset model'
             $script:Msg.HelpExStatus       = '  .\setup-ollama-win.ps1 -Status         Kontrollér installation'
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Opret fejlrapport'
@@ -2312,7 +2314,7 @@ function Initialize-Messages {
             # Model Menu
             $script:Msg.ChooseModel        = 'Wähle ein Modell:'
             $script:Msg.ChoicePrompt       = 'Auswahl [1-4, Enter=1]'
-            $script:Msg.Model3B            = 'Optimale Gesamtleistung [Standard]'
+            $script:Msg.Model4B            = 'Optimale Gesamtleistung [Standard]'
             $script:Msg.Model1_5B          = 'Schnell, eingeschränkte Genauigkeit [Einstieg]'
             $script:Msg.Model7B            = 'Erfordert sehr leistungsfähige Hardware'
             $script:Msg.ModelQwen3         = 'Beste Argumentationsanalyse [Premium]'
@@ -2325,7 +2327,7 @@ function Initialize-Messages {
             $script:Msg.ActionPrompt       = 'Auswahl [1-4, Enter=1]'
             # Select Model
             $script:Msg.InvalidModel       = 'Ungültige Modell-Variante: {0}'
-            $script:Msg.ValidVariants      = 'Gültige Varianten: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b'
+            $script:Msg.ValidVariants      = 'Gültige Varianten: 1.5b, qwen3-4b, 7b, qwen3-8b'
             $script:Msg.RamWarnModel       = 'Dieses Modell empfiehlt mindestens {0}GB RAM'
             $script:Msg.RamWarnSys         = 'Dein System hat {0}GB RAM'
             $script:Msg.ContinueAnyway     = 'Trotzdem fortfahren?'
@@ -2409,7 +2411,6 @@ function Initialize-Messages {
             $script:Msg.WaitForAutoStart   = 'Warte auf automatischen Start der Ollama-App...'
             $script:Msg.RebootRequired     = 'Ein Neustart des Computers kann erforderlich sein'
             $script:Msg.OllamaPathError    = 'Ollama installiert, aber CLI nicht im PATH. Neues Terminal öffnen oder PATH prüfen.'
-            $script:Msg.ServerStartWarn    = 'Server-Start fehlgeschlagen - manuell starten: ollama serve'
             $script:Msg.ManualInstall      = 'Bitte Ollama manuell installieren: https://ollama.com/download'
             $script:Msg.ManualRerun        = 'Danach dieses Script erneut ausführen.'
             $script:Msg.OllamaFound        = 'Ollama gefunden: {0}'
@@ -2448,11 +2449,10 @@ function Initialize-Messages {
             $script:Msg.UsingDefaultConf   = 'Verwende Standard-Konfiguration'
             $script:Msg.ConfigReadError    = 'Konnte Konfiguration nicht lesen: {0}'
             $script:Msg.CustomCreating      = 'Erstelle Hablará-Modell {0}...'
-            $script:Msg.CustomCreateTO     = 'ollama create Timeout nach 300s'
+            $script:Msg.CustomCreateTO     = 'ollama create Timeout nach {0}s'
             $script:Msg.CustomCreateFail   = 'Hablará-Modell konnte nicht {0} werden'
             $script:Msg.CustomDone         = 'Hablará-Modell {0}: {1}'
             $script:Msg.ConfigError        = 'Konfigurationsfehler'
-            $script:Msg.PermsWarn          = 'Konnte restriktive Berechtigungen nicht setzen: {0}'
             $script:Msg.VerbCreated        = 'erstellt'
             $script:Msg.VerbUpdated        = 'aktualisiert'
             # Verify
@@ -2473,7 +2473,7 @@ function Initialize-Messages {
             $script:Msg.OllamaConfig       = 'Ollama-Konfiguration:'
             $script:Msg.ModelLabel         = '  Modell:   '
             $script:Msg.BaseUrlLabel       = '  Base URL: '
-            $script:Msg.Docs               = 'Dokumentation: https://github.com/fidpa/hablara'
+            $script:Msg.Docs               = 'Dokumentation: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md'
             # Misc
             $script:Msg.TestModel          = 'Teste Modell...'
             $script:Msg.TestOk             = 'Modell-Test erfolgreich'
@@ -2504,7 +2504,7 @@ function Initialize-Messages {
             $script:Msg.HelpUsage          = 'Verwendung:'
             $script:Msg.HelpUsageLine      = '  .\setup-ollama-win.ps1 [OPTIONEN]'
             $script:Msg.HelpOptions        = 'Optionen:'
-            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Modell-Variante wählen: 1.5b, 3b, 7b, qwen3-8b (Standard: 3b)'
+            $script:Msg.HelpOptModel       = '  -Model VARIANTE       Modell-Variante wählen: 1.5b, qwen3-4b, 7b, qwen3-8b (Standard: qwen3-4b)'
             $script:Msg.HelpOptUpdate      = '  -Update               Hablará-Custom-Modell neu erstellen (Modelfile aktualisieren)'
             $script:Msg.HelpOptStatus      = '  -Status               Health-Check: 7-Punkte-Prüfung der Ollama-Installation'
             $script:Msg.HelpOptDiagnose    = '  -Diagnose             Support-Report generieren (Plain-Text, kopierfähig)'
@@ -2514,7 +2514,7 @@ function Initialize-Messages {
             $script:Msg.HelpNoOpts         = '  Ohne Optionen startet ein interaktives Menü.'
             $script:Msg.HelpVariants       = 'Modell-Varianten:'
             $script:Msg.HelpExamples       = 'Beispiele:'
-            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model 3b       3b-Variante installieren'
+            $script:Msg.HelpExModel        = '  .\setup-ollama-win.ps1 -Model qwen3-4b  qwen3-4b-Variante installieren'
             $script:Msg.HelpExUpdate       = '  .\setup-ollama-win.ps1 -Update         Custom-Modell aktualisieren'
             $script:Msg.HelpExStatus       = '  .\setup-ollama-win.ps1 -Status         Installation prüfen'
             $script:Msg.HelpExDiagnose     = '  .\setup-ollama-win.ps1 -Diagnose       Report für Bug-Ticket erstellen'
@@ -2563,7 +2563,7 @@ function Test-OllamaModelExists {
     if (-not (Test-CommandExists 'ollama')) { return $false }
     $result = Invoke-WithTimeout -TimeoutSeconds 15 -Command 'ollama' -Arguments @('list')
     if ($result.TimedOut) {
-        Write-Warning $script:Msg.OllamaListTimeout
+        Write-Warn $script:Msg.OllamaListTimeout
         return $false
     }
     if ($result.ExitCode -ne 0 -or -not $result.Output) { return $false }
@@ -2574,9 +2574,18 @@ function Test-OllamaModelExists {
     return $false
 }
 
+# Interaktiv = echte Konsole, an der Read-Host beantwortet werden kann. Falsch bei
+# umgeleitetem stdin/stdout, in Session 0 (Dienst, Task Scheduler "unabhängig von
+# Anmeldung") und bei `powershell -NonInteractive` (dort wirft Read-Host).
 function Test-InteractiveSession {
-    try { return -not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected }
-    catch { return $false }
+    try {
+        if (-not [Environment]::UserInteractive) { return $false }
+        if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) { return $false }
+        foreach ($arg in [Environment]::GetCommandLineArgs()) {
+            if ($arg -match '^[-/]noni') { return $false }
+        }
+        return $true
+    } catch { return $false }
 }
 
 function Get-SystemRAMGB {
@@ -2622,8 +2631,9 @@ function Compare-SemanticVersion {
     # Strip pre-release suffixes (e.g., "0.6.2-rc1" -> "0.6.2")
     $Version1 = ($Version1 -split '-')[0]
     $Version2 = ($Version2 -split '-')[0]
-    $v1Parts = ($Version1 -replace '[^0-9.]', '') -split '\.' | Where-Object { $_ -ne '' } | ForEach-Object { [int]$_ }
-    $v2Parts = ($Version2 -replace '[^0-9.]', '') -split '\.' | Where-Object { $_ -ne '' } | ForEach-Object { [int]$_ }
+    # @(): ein einteiliger String liefert sonst einen Skalar, der unter StrictMode kein .Length hat
+    $v1Parts = @(($Version1 -replace '[^0-9.]', '') -split '\.' | Where-Object { $_ -ne '' } | ForEach-Object { [int]$_ })
+    $v2Parts = @(($Version2 -replace '[^0-9.]', '') -split '\.' | Where-Object { $_ -ne '' } | ForEach-Object { [int]$_ })
 
     for ($i = 0; $i -lt [Math]::Max($v1Parts.Length, $v2Parts.Length); $i++) {
         $p1 = if ($i -lt $v1Parts.Length) { $v1Parts[$i] } else { 0 }
@@ -2701,7 +2711,7 @@ function Get-RecommendedModel {
     param([int]$Bandwidth)
     if ($Bandwidth -ge 500) { return 'qwen3-8b' }
     elseif ($Bandwidth -ge 300) { return '7b' }
-    elseif ($Bandwidth -ge 150) { return '3b' }
+    elseif ($Bandwidth -ge 150) { return 'qwen3-4b' }
     elseif ($Bandwidth -ge 50) { return '1.5b' }
     else { return 'none' }
 }
@@ -2712,6 +2722,7 @@ function Get-EstimatedToksPerSec {
     param([int]$Bandwidth, [string]$Model)
     $sizeX10, $factor = switch ($Model) {
         '1.5b'     { 10, 6 }
+        'qwen3-4b' { 25, 6 }
         '3b'       { 19, 7 }
         '7b'       { 47, 8 }
         'qwen3-8b' { 52, 8 }
@@ -2758,12 +2769,12 @@ function Show-HardwareRecommendation {
     Write-Host $script:Msg.HwRecommendation -ForegroundColor Cyan
 
     $toks15b = Get-EstimatedToksPerSec -Bandwidth $Bandwidth -Model '1.5b'
-    $toks3b  = Get-EstimatedToksPerSec -Bandwidth $Bandwidth -Model '3b'
+    $toks4b  = Get-EstimatedToksPerSec -Bandwidth $Bandwidth -Model 'qwen3-4b'
     $toks7b  = Get-EstimatedToksPerSec -Bandwidth $Bandwidth -Model '7b'
     $toksQ3  = Get-EstimatedToksPerSec -Bandwidth $Bandwidth -Model 'qwen3-8b'
 
     Write-ModelRatingLine -ModelLabel 'qwen2.5:1.5b' -Toks $toks15b -IsRecommended ($script:RecommendedModel -eq '1.5b')
-    Write-ModelRatingLine -ModelLabel 'qwen2.5:3b'   -Toks $toks3b  -IsRecommended ($script:RecommendedModel -eq '3b')
+    Write-ModelRatingLine -ModelLabel 'qwen3:4b'     -Toks $toks4b  -IsRecommended ($script:RecommendedModel -eq 'qwen3-4b')
     Write-ModelRatingLine -ModelLabel 'qwen2.5:7b'   -Toks $toks7b  -IsRecommended ($script:RecommendedModel -eq '7b')
     Write-ModelRatingLine -ModelLabel 'qwen3:8b'     -Toks $toksQ3  -IsRecommended ($script:RecommendedModel -eq 'qwen3-8b')
     Write-Host ""
@@ -2771,7 +2782,7 @@ function Show-HardwareRecommendation {
 
     if ($script:RecommendedModel -eq 'none') {
         Write-Host ""
-        Write-Warning $script:Msg.HwLocalTooSlow
+        Write-Warn $script:Msg.HwLocalTooSlow
         Write-Info $script:Msg.HwCloudHint
         Write-Host ""
 
@@ -2782,16 +2793,24 @@ function Show-HardwareRecommendation {
                 exit 0
             }
         }
-        $script:RecommendedModel = $DefaultModel
+        # Wie die App: unter 50 GB/s das kleinste Modell, zusätzlich der Cloud-Hinweis oben
+        $script:RecommendedModel = '1.5b'
     }
 
 }
 
 # Returns version string (e.g. "0.6.2") or localized "unknown"
+# Prozess-basiert statt `& ollama --version 2>&1`: Bei gestopptem Server schreibt
+# Ollama "Warning: could not connect ..." und "Warning: client version is X" nach
+# stderr. Unter PS 5.1 mit $ErrorActionPreference=Stop macht `2>&1` daraus eine
+# terminierende Exception, und die erste Zeile enthielte ohnehin keine Version.
 function Get-OllamaVersionString {
     try {
-        $versionOutput = & ollama --version 2>&1 | Select-Object -First 1
-        if ($versionOutput -match '(\d+\.\d+\.?\d*)') { return $Matches[1] }
+        $result = Invoke-WithTimeout -TimeoutSeconds 15 -Command 'ollama' -Arguments @('--version')
+        if (-not $result.TimedOut) {
+            $text = (@($result.Output) + @($result.ErrorOutput) | Where-Object { $_ }) -join "`n"
+            if ($text -match '(\d+\.\d+\.?\d*)') { return $Matches[1] }
+        }
     } catch {}
     return $script:Msg.DiagnoseUnknown
 }
@@ -2800,7 +2819,7 @@ function Test-OllamaVersion {
     $currentVersion = Get-OllamaVersionString
     if ($currentVersion -ne $script:Msg.DiagnoseUnknown) {
         if ((Compare-SemanticVersion $currentVersion $MinOllamaVersion) -lt 0) {
-            Write-Warning ($script:Msg.VersionWarn -f $currentVersion, $MinOllamaVersion)
+            Write-Warn ($script:Msg.VersionWarn -f $currentVersion, $MinOllamaVersion)
             Write-Info $script:Msg.UpdateHint
             return $false
         }
@@ -2824,7 +2843,7 @@ function Test-ModelInference {
     Write-Info $script:Msg.TestModel
 
     if (Test-ModelResponds -Model $Model) { Write-Success $script:Msg.TestOk; return $true }
-    Write-Warning $script:Msg.TestFail
+    Write-Warn $script:Msg.TestFail
     return $false
 }
 
@@ -2847,7 +2866,7 @@ function Invoke-Benchmark {
 function Show-BenchmarkResult {
     param([string]$Model = $script:CustomModelName)
     $toks = Invoke-Benchmark -Model $Model
-    if ($null -eq $toks) { Write-Warning $script:Msg.BenchSkip; return }
+    if ($null -eq $toks) { Write-Warn $script:Msg.BenchSkip; return }
 
     Write-Host ""
     if ($toks -ge 80) {
@@ -2857,11 +2876,11 @@ function Show-BenchmarkResult {
         Write-Success ($script:Msg.BenchResult -f $toks, $Model)
         Write-Info $script:Msg.BenchGood
     } elseif ($toks -ge 25) {
-        Write-Warning ($script:Msg.BenchResult -f $toks, $Model)
-        Write-Warning $script:Msg.BenchMarginal
+        Write-Warn ($script:Msg.BenchResult -f $toks, $Model)
+        Write-Warn $script:Msg.BenchMarginal
     } else {
-        Write-Warning ($script:Msg.BenchResult -f $toks, $Model)
-        Write-Warning $script:Msg.BenchTooSlow
+        Write-Warn ($script:Msg.BenchResult -f $toks, $Model)
+        Write-Warn $script:Msg.BenchTooSlow
         Write-Info $script:Msg.HwCloudHint
     }
 
@@ -3034,7 +3053,7 @@ function Invoke-PullWithHeartbeat {
 
             # Hard timeout
             if ($elapsed -ge $HardTimeoutSeconds) {
-                Write-Warning ($script:Msg.DownloadHardTimeout -f [math]::Floor($HardTimeoutSeconds / 60))
+                Write-Warn ($script:Msg.DownloadHardTimeout -f [math]::Floor($HardTimeoutSeconds / 60))
                 try { $process.Kill() } catch {}
                 return @{ Success = $false; TimedOut = $true; Stalled = $false; ExitCode = 124; StdErr = '' }
             }
@@ -3049,7 +3068,7 @@ function Invoke-PullWithHeartbeat {
             } else {
                 $stallSeconds = ((Get-Date) - $lastProgressTime).TotalSeconds
                 if ($stallSeconds -ge $StallTimeoutSeconds) {
-                    Write-Warning ($script:Msg.DownloadStall -f [math]::Floor($StallTimeoutSeconds / 60))
+                    Write-Warn ($script:Msg.DownloadStall -f [math]::Floor($StallTimeoutSeconds / 60))
                     try { $process.Kill() } catch {}
                     return @{ Success = $false; TimedOut = $false; Stalled = $true; ExitCode = 1; StdErr = '' }
                 }
@@ -3096,7 +3115,10 @@ function Invoke-PullWithHeartbeat {
 # ============================================================================
 
 function Invoke-StatusCheck {
+    $script:Mode = 'status'
     $errors = 0
+    # PATH der laufenden Konsole kennt eine frische Installation noch nicht
+    Find-OllamaInstallation | Out-Null
 
     Write-Host ""
     Write-Host $script:Msg.StatusTitle -ForegroundColor Cyan
@@ -3140,7 +3162,7 @@ function Invoke-StatusCheck {
 
     # 4. Base models present? (scan all variants, largest first)
     $baseModelsFound = @()
-    foreach ($variant in @('qwen3-8b', '7b', '3b', '1.5b')) {
+    foreach ($variant in @('qwen3-8b', '7b', 'qwen3-4b', '3b', '1.5b')) {
         if (-not $ModelConfigs.ContainsKey($variant)) { continue }
         $modelName = $ModelConfigs[$variant].Name
         if (Test-OllamaModelExists $modelName) { $baseModelsFound += $modelName }
@@ -3160,9 +3182,9 @@ function Invoke-StatusCheck {
 
     # 5. Custom models present? (scan all variants, largest first)
     $customModelsFound = @()
-    foreach ($variant in @('qwen3-8b', '7b', '3b', '1.5b')) {
+    foreach ($variant in @('qwen3-8b', '7b', 'qwen3-4b', '3b', '1.5b')) {
         if (-not $ModelConfigs.ContainsKey($variant)) { continue }
-        $modelName = "$($ModelConfigs[$variant].Name)-custom"
+        $modelName = Get-CustomModelName -Config $ModelConfigs[$variant]
         if (Test-OllamaModelExists $modelName) { $customModelsFound += $modelName }
     }
 
@@ -3185,12 +3207,12 @@ function Invoke-StatusCheck {
     }
 
     # 6. Model inference works? (use smallest model for fastest check)
-    # Explicit priority: 3b > 7b > qwen3-8b (smallest = fastest)
-    $modelPriority = @('1.5b', '3b', '7b', 'qwen3-8b')
+    # Explicit priority: 1.5b > qwen3-4b > 3b > 7b > qwen3-8b (smallest = fastest)
+    $modelPriority = @('1.5b', 'qwen3-4b', '3b', '7b', 'qwen3-8b')
     $testModel = $null
     foreach ($prio in $modelPriority) {
         if (-not $ModelConfigs.ContainsKey($prio)) { continue }
-        $candidate = "$($ModelConfigs[$prio].Name)-custom"
+        $candidate = Get-CustomModelName -Config $ModelConfigs[$prio]
         if ($customModelsFound -contains $candidate) { $testModel = $candidate; break }
     }
     if (-not $testModel) {
@@ -3203,7 +3225,7 @@ function Invoke-StatusCheck {
     if (-not $serverReachable) {
         Write-StatusNote $script:Msg.StatusInfSkip
     } elseif ($testModel) {
-        if (Test-ModelResponds -Model $testModel -TimeoutSec 15) {
+        if (Test-ModelResponds -Model $testModel -TimeoutSec 30) {
             Write-StatusOk $script:Msg.StatusModelOk
         } else {
             Write-StatusFail $script:Msg.StatusModelFail
@@ -3259,6 +3281,9 @@ function Invoke-StatusCheck {
 # ============================================================================
 
 function Invoke-DiagnoseReport {
+    $script:Mode = 'diagnose'
+    Find-OllamaInstallation | Out-Null
+
     # --- System ---
     $osInfo = [System.Environment]::OSVersion
     $osVersion = "Windows $($osInfo.Version.Major).$($osInfo.Version.Minor)"
@@ -3324,10 +3349,10 @@ function Invoke-DiagnoseReport {
     }
 
     if ($ollamaAvailable -and $ollamaList) {
-        foreach ($variant in @('qwen3-8b', '7b', '3b', '1.5b')) {
+        foreach ($variant in @('qwen3-8b', '7b', 'qwen3-4b', '3b', '1.5b')) {
             if (-not $ModelConfigs.ContainsKey($variant)) { continue }
             $modelName = $ModelConfigs[$variant].Name
-            $customName = "${modelName}-custom"
+            $customName = Get-CustomModelName -Config $ModelConfigs[$variant]
 
             # Check base model
             if (Test-OllamaModelExists $modelName) {
@@ -3358,7 +3383,7 @@ function Invoke-DiagnoseReport {
                     }
                 }
                 $respondsLabel = ''
-                if ($serverStatus -eq $script:Msg.DiagnoseRunning -and (Test-ModelResponds -Model $customName -TimeoutSec 15)) {
+                if ($serverStatus -eq $script:Msg.DiagnoseRunning -and (Test-ModelResponds -Model $customName -TimeoutSec 30)) {
                     $respondsLabel = " $($script:Msg.DiagnoseResponds)"
                 }
                 $padding = ' ' * [math]::Max(1, 20 - $customName.Length)
@@ -3375,8 +3400,14 @@ function Invoke-DiagnoseReport {
 
     # --- Ollama Log ---
     $logOutput = ''
-    $logFile = Join-Path $env:USERPROFILE '.ollama\logs\server.log'
-    if (Test-Path $logFile) {
+    # Windows: %LOCALAPPDATA%\Ollama\server.log (Ollama-Doku). ~\.ollama\logs ist der
+    # macOS/Linux-Pfad und bleibt nur als Fallback.
+    $logCandidates = @()
+    if ($env:LOCALAPPDATA) { $logCandidates += (Join-Path $env:LOCALAPPDATA 'Ollama\server.log') }
+    if ($env:USERPROFILE) { $logCandidates += (Join-Path $env:USERPROFILE '.ollama\logs\server.log') }
+    $logFile = $logCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $logFile) { $logFile = if ($logCandidates.Count -gt 0) { $logCandidates[0] } else { 'server.log' } }
+    if (Test-Path -LiteralPath $logFile) {
         try {
             $logLines = Get-Content -Path $logFile -Tail 200 -ErrorAction Stop
             $errorLines = $logLines | Where-Object { $_ -match 'ERROR|WARN|fatal' } | Select-Object -Last 10
@@ -3446,7 +3477,7 @@ ${diagScript}   setup-ollama-win.ps1 v${ScriptVersion}
             [System.IO.File]::WriteAllText($reportFile, $reportContent, [System.Text.UTF8Encoding]::new($false))
             Write-Success ($script:Msg.DiagnoseSaved -f $reportFile)
         } catch {
-            Write-Warning $script:Msg.DiagnoseSaveFailed
+            Write-Warn $script:Msg.DiagnoseSaveFailed
         }
     }
 }
@@ -3456,6 +3487,9 @@ ${diagScript}   setup-ollama-win.ps1 v${ScriptVersion}
 # ============================================================================
 
 function Invoke-Cleanup {
+    $script:Mode = 'cleanup'
+    Find-OllamaInstallation | Out-Null
+
     if (-not (Test-InteractiveSession)) {
         Write-Err $script:Msg.CleanupNeedsTTY
         exit 1
@@ -3475,10 +3509,10 @@ function Invoke-Cleanup {
 
     # Discover installed Hablará variants
     $variants = @()
-    foreach ($variant in @('1.5b', '3b', '7b', 'qwen3-8b')) {
+    foreach ($variant in @('1.5b', 'qwen3-4b', '3b', '7b', 'qwen3-8b')) {
         if (-not $ModelConfigs.ContainsKey($variant)) { continue }
         $modelName = $ModelConfigs[$variant].Name
-        $customName = "${modelName}-custom"
+        $customName = Get-CustomModelName -Config $ModelConfigs[$variant]
         $hasBase = Test-OllamaModelExists $modelName
         $hasCustom = Test-OllamaModelExists $customName
 
@@ -3527,33 +3561,33 @@ function Invoke-Cleanup {
     if ($selected.Custom) {
         $rmResult = Invoke-WithTimeout -TimeoutSeconds 30 -Command 'ollama' -Arguments @('rm', $selected.Custom)
         if ($rmResult.TimedOut) {
-            Write-Warning ($script:Msg.CleanupTimeout -f $selected.Custom)
+            Write-Warn ($script:Msg.CleanupTimeout -f $selected.Custom)
         } elseif ($rmResult.ExitCode -eq 0) {
             Write-Success ($script:Msg.CleanupDeleted -f $selected.Custom)
         } else {
             $reason = if ($rmResult.ErrorOutput) { $rmResult.ErrorOutput -join ' ' } else { $script:Msg.CleanupUnknownErr }
-            Write-Warning ($script:Msg.CleanupFailed -f $selected.Custom, $reason)
+            Write-Warn ($script:Msg.CleanupFailed -f $selected.Custom, $reason)
         }
     }
 
     if ($selected.Base) {
         $rmResult = Invoke-WithTimeout -TimeoutSeconds 30 -Command 'ollama' -Arguments @('rm', $selected.Base)
         if ($rmResult.TimedOut) {
-            Write-Warning ($script:Msg.CleanupTimeout -f $selected.Base)
+            Write-Warn ($script:Msg.CleanupTimeout -f $selected.Base)
         } elseif ($rmResult.ExitCode -eq 0) {
             Write-Success ($script:Msg.CleanupDeleted -f $selected.Base)
         } else {
             $reason = if ($rmResult.ErrorOutput) { $rmResult.ErrorOutput -join ' ' } else { $script:Msg.CleanupUnknownErr }
-            Write-Warning ($script:Msg.CleanupFailed -f $selected.Base, $reason)
+            Write-Warn ($script:Msg.CleanupFailed -f $selected.Base, $reason)
         }
     }
 
     # Check if any Hablará models remain
     $remaining = $false
-    foreach ($variant in @('1.5b', '3b', '7b', 'qwen3-8b')) {
+    foreach ($variant in @('1.5b', 'qwen3-4b', '3b', '7b', 'qwen3-8b')) {
         if (-not $ModelConfigs.ContainsKey($variant)) { continue }
         $modelName = $ModelConfigs[$variant].Name
-        if ((Test-OllamaModelExists $modelName) -or (Test-OllamaModelExists "${modelName}-custom")) {
+        if ((Test-OllamaModelExists $modelName) -or (Test-OllamaModelExists (Get-CustomModelName -Config $ModelConfigs[$variant]))) {
             $remaining = $true
             break
         }
@@ -3561,7 +3595,7 @@ function Invoke-Cleanup {
 
     if (-not $remaining) {
         Write-Host ""
-        Write-Warning $script:Msg.CleanupNoneLeft
+        Write-Warn $script:Msg.CleanupNoneLeft
     }
 
     Write-Host ""
@@ -3594,7 +3628,7 @@ function Show-HelpMessage {
     Write-Host ""
     Write-Host $script:Msg.HelpVariants -ForegroundColor Green
     Write-Host "  qwen2.5-1.5b  ~1 GB     $($script:Msg.Model1_5B)"
-    Write-Host "  qwen2.5-3b    ~2 GB     $($script:Msg.Model3B)"
+    Write-Host "  qwen3-4b      ~2.5 GB   $($script:Msg.Model4B)"
     Write-Host "  qwen2.5-7b    ~4.7 GB   $($script:Msg.Model7B)"
     Write-Host "  qwen3-8b      ~5.2 GB   $($script:Msg.ModelQwen3)"
     Write-Host ""
@@ -3619,7 +3653,7 @@ function Show-ModelMenu {
     $s1 = ''; $s2 = ''; $s3 = ''; $s4 = ''
     switch ($rec) {
         '1.5b'     { $s1 = ' ★' }
-        '3b'       { $s2 = ' ★' }
+        'qwen3-4b' { $s2 = ' ★' }
         '7b'       { $s3 = ' ★' }
         'qwen3-8b' { $s4 = ' ★' }
     }
@@ -3627,7 +3661,7 @@ function Show-ModelMenu {
     # Map recommended model to menu number for dynamic default
     $defaultNum = switch ($rec) {
         '1.5b'     { '1' }
-        '3b'       { '2' }
+        'qwen3-4b' { '2' }
         '7b'       { '3' }
         'qwen3-8b' { '4' }
         default     { '2' }
@@ -3637,7 +3671,7 @@ function Show-ModelMenu {
     Write-Host $script:Msg.ChooseModel -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  1) qwen2.5-1.5b - $($script:Msg.Model1_5B)$s1"
-    Write-Host "  2) qwen2.5-3b   - $($script:Msg.Model3B)$s2"
+    Write-Host "  2) qwen3-4b     - $($script:Msg.Model4B)$s2"
     Write-Host "  3) qwen2.5-7b   - $($script:Msg.Model7B)$s3"
     Write-Host "  4) qwen3-8b     - $($script:Msg.ModelQwen3)$s4"
     Write-Host ""
@@ -3651,7 +3685,7 @@ function Show-ModelMenu {
 
     switch ($choice) {
         '1' { return '1.5b' }
-        '2' { return '3b' }
+        '2' { return 'qwen3-4b' }
         '3' { return '7b' }
         '4' { return 'qwen3-8b' }
         default { return $rec }
@@ -3723,7 +3757,7 @@ function Select-ModelConfig {
 
     $config = $ModelConfigs[$selectedModel]
     $script:ModelName = $config.Name
-    $script:CustomModelName = "$($config.Name)-custom"
+    $script:CustomModelName = Get-CustomModelName -Config $config
     $script:ModelSize = $config.Size
     $script:RequiredDiskSpaceGB = $config.DiskGB
 
@@ -3732,15 +3766,15 @@ function Select-ModelConfig {
         $systemRAM = Get-SystemRAMGB
         if ($systemRAM -gt 0 -and $systemRAM -lt $config.MinRAM) {
             Write-Host ""
-            Write-Warning ($script:Msg.RamWarnModel -f $config.MinRAM)
-            Write-Warning ($script:Msg.RamWarnSys -f $systemRAM)
+            Write-Warn ($script:Msg.RamWarnModel -f $config.MinRAM)
+            Write-Warn ($script:Msg.RamWarnSys -f $systemRAM)
             Write-Host ""
 
             if (Test-InteractiveSession) {
                 $confirm = Read-Host "$($script:Msg.ContinueAnyway) $($script:Msg.ConfirmPrompt)"
                 if ($confirm -notmatch $script:Msg.ConfirmPattern) { Write-Info $script:Msg.Aborted; exit 0 }
             } else {
-                Write-Warning $script:Msg.ProceedNonInteract
+                Write-Warn $script:Msg.ProceedNonInteract
             }
         }
     }
@@ -3798,7 +3832,7 @@ function Test-Prerequisites {
 
     $gpu = Test-GpuAvailable
     if ($gpu.Available) { Write-Success ($script:Msg.GpuDetected -f $gpu.Type) }
-    else { Write-Warning $script:Msg.GpuNone }
+    else { Write-Warn $script:Msg.GpuNone }
 
     Write-Host ""
 }
@@ -3818,18 +3852,18 @@ function Start-OllamaServer {
     if (Test-PortInUse -Port 11434) {
         Write-Info $script:Msg.PortBusy
         if (Wait-OllamaServer -TimeoutSeconds 60) { return $true }
-        Write-Warning $script:Msg.PortBusyWarn
+        Write-Warn $script:Msg.PortBusyWarn
         return $false
     }
 
     # Try Ollama Desktop App. Pfade analog Find-OllamaInstallation —
     # winget installiert seit Ende 2024 standardmäßig nach %LOCALAPPDATA%\Programs\Ollama\.
-    $ollamaAppPaths = @(
-        (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama app.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Ollama\ollama app.exe'),
-        (Join-Path $env:ProgramFiles 'Ollama\ollama app.exe'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Ollama\ollama app.exe')
-    )
+    # Join-Path wirft bei leerer Basis (z. B. fehlendes ProgramFiles(x86)) → nur gesetzte Basen
+    $ollamaAppPaths = @()
+    foreach ($base in @($env:LOCALAPPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($base) { $ollamaAppPaths += (Join-Path $base 'Ollama\ollama app.exe') }
+    }
+    if ($env:LOCALAPPDATA) { $ollamaAppPaths += (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama app.exe') }
     $ollamaApp = $ollamaAppPaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if ($ollamaApp) {
         Write-Info $script:Msg.OllamaAppStart
@@ -3843,13 +3877,14 @@ function Start-OllamaServer {
     if (Test-PortInUse -Port 11434) {
         Write-Info $script:Msg.PortBusy
         if (Wait-OllamaServer -TimeoutSeconds 30) { return $true }
-        Write-Warning $script:Msg.PortBusyWarn
+        Write-Warn $script:Msg.PortBusyWarn
         return $false
     }
 
     if (Test-CommandExists 'ollama') {
         Write-Info $script:Msg.OllamaServeStart
         $process = Start-Process -FilePath 'ollama' -ArgumentList 'serve' -WindowStyle Hidden -PassThru
+        $null = $process.Handle   # sonst liefert $process.ExitCode nach Exit $null (siehe Invoke-PullWithHeartbeat)
         $serverReady = Wait-OllamaServer -TimeoutSeconds 30
 
         if ($serverReady -and -not $process.HasExited) { return $true }
@@ -3866,15 +3901,14 @@ function Find-OllamaInstallation {
     if (Test-CommandExists 'ollama') { return $true }
 
     # Check common Windows installation paths
-    $searchPaths = @(
-        (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'),
-        (Join-Path $env:ProgramFiles 'Ollama\ollama.exe'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Ollama\ollama.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Ollama\ollama.exe')
-    )
+    $searchPaths = @()
+    if ($env:LOCALAPPDATA) { $searchPaths += (Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe') }
+    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+        if ($base) { $searchPaths += (Join-Path $base 'Ollama\ollama.exe') }
+    }
 
     foreach ($p in $searchPaths) {
-        if (Test-Path $p) {
+        if (Test-Path -LiteralPath $p) {
             $dir = Split-Path $p -Parent
             Write-Info ($script:Msg.OllamaFound -f $p)
             $env:Path += ";$dir"
@@ -3893,8 +3927,7 @@ function Install-Ollama {
 
     if (Test-CommandExists 'ollama') {
         Write-Success $script:Msg.OllamaAlready
-        $version = & ollama --version 2>&1 | Select-Object -First 1
-        Write-Info ($script:Msg.OllamaVersion -f $version)
+        Write-Info ($script:Msg.OllamaVersion -f (Get-OllamaVersionString))
         Test-OllamaVersion | Out-Null
 
         if (-not (Start-OllamaServer)) {
@@ -3911,13 +3944,13 @@ function Install-Ollama {
             $wingetResult = Invoke-WithTimeout -TimeoutSeconds 600 -Command 'winget' `
                 -Arguments @('install', 'Ollama.Ollama', '--silent', '--accept-source-agreements', '--accept-package-agreements')
             if ($wingetResult.TimedOut) {
-                Write-Warning $script:Msg.WingetTimeout
+                Write-Warn $script:Msg.WingetTimeout
                 throw "timeout"
             }
             $wingetExit = $wingetResult.ExitCode
             if ($wingetExit -eq 0 -or $wingetExit -eq 3010) {
                 Write-Success $script:Msg.OllamaInstalled
-                if ($wingetExit -eq 3010) { Write-Warning $script:Msg.RebootRequired }
+                if ($wingetExit -eq 3010) { Write-Warn $script:Msg.RebootRequired }
 
                 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
@@ -3946,10 +3979,10 @@ function Install-Ollama {
                 }
                 return
             }
-        } catch { Write-Warning ($script:Msg.WingetFailed -f $_) }
+        } catch { Write-Warn ($script:Msg.WingetFailed -f $_) }
     }
 
-    Write-Warning $script:Msg.AutoInstallFailed
+    Write-Warn $script:Msg.AutoInstallFailed
     Write-Host ""
     Write-Host $script:Msg.ManualInstall -ForegroundColor Cyan
     Write-Host $script:Msg.ManualRerun
@@ -3981,9 +4014,9 @@ function Install-BaseModel {
         if ($pullResult.Success) { $pullSuccess = $true; break }
 
         if ($pullResult.TimedOut) {
-            Write-Warning ($script:Msg.DownloadTimeoutW -f [math]::Floor($pullTimeout / 60), $attempt)
+            Write-Warn ($script:Msg.DownloadTimeoutW -f [math]::Floor($pullTimeout / 60), $attempt)
         } else {
-            Write-Warning ($script:Msg.DownloadFailedW -f $attempt)
+            Write-Warn ($script:Msg.DownloadFailedW -f $attempt)
             if ($pullResult.StdErr) {
                 Write-Info $script:Msg.DownloadLastError
                 foreach ($line in ($pullResult.StdErr -split "`n")) {
@@ -4036,8 +4069,9 @@ function New-CustomModel {
         }
     }
 
-    # Dynamic modelfile path based on selected model variant (e.g. qwen2.5:7b → qwen2.5-7b-custom.modelfile)
-    $modelfileName = ($script:ModelName -replace ':', '-') + "-custom.modelfile"
+    # Modelfile-Pfad aus dem Custom-Namen (qwen2.5:7b-custom → qwen2.5-7b-custom.modelfile,
+    # qwen3:4b-custom → qwen3-4b-custom.modelfile; der Basisname trägt beim 4B einen datierten Tag)
+    $modelfileName = ($script:CustomModelName -replace ':', '-') + ".modelfile"
     $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { "" }
     $externalModelfile = if ($scriptDir) { Join-Path $scriptDir "ollama\$modelfileName" } else { "" }
 
@@ -4047,7 +4081,7 @@ function New-CustomModel {
             $modelfileContent = [System.IO.File]::ReadAllText($externalModelfile)
             Write-Info $script:Msg.UsingHablaraConf
         } catch {
-            Write-Warning ($script:Msg.ConfigReadError -f $_)
+            Write-Warn ($script:Msg.ConfigReadError -f $_)
             $externalModelfile = ""
         }
     }
@@ -4072,7 +4106,7 @@ PARAMETER repeat_penalty 1.1
     $canonicalTemp = [System.IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') + '\'
     if (-not $canonicalPath.StartsWith($canonicalTemp, [StringComparison]::OrdinalIgnoreCase)) {
         Write-Err $script:Msg.ConfigError
-        return
+        exit 1
     }
 
     # Write without BOM (Ollama can't parse BOM)
@@ -4091,6 +4125,9 @@ PARAMETER repeat_penalty 1.1
     $spinIdx = 0
     $createMsg = $script:Msg.CustomCreating -f $script:CustomModelName
 
+    # Ohne Hablará-Modell kann die App Ollama nicht nutzen: Fehler oder Timeout von
+    # `ollama create` beenden das Setup mit Exit 1 (kein stiller Erfolg, auch nicht bei -Update).
+    $createFailed = $false
     $createProc = $null
     $createOut = Join-Path $env:TEMP "hablara-create-out-$([System.IO.Path]::GetRandomFileName()).tmp"
     $createErr = Join-Path $env:TEMP "hablara-create-err-$([System.IO.Path]::GetRandomFileName()).tmp"
@@ -4107,7 +4144,7 @@ PARAMETER repeat_penalty 1.1
         # KRITISCH: Handle-Zugriff erzwingt Retention (siehe Invoke-PullWithHeartbeat).
         $null = $createProc.Handle
 
-        $timeoutMs = 300 * 1000
+        $timeoutMs = $OllamaCreateTimeoutSec * 1000
         $startTime = [System.Environment]::TickCount
         $timedOut = $false
 
@@ -4134,34 +4171,32 @@ PARAMETER repeat_penalty 1.1
             try { $stderrText = (Get-Content -LiteralPath $createErr -Raw -ErrorAction SilentlyContinue) } catch {}
         }
 
-        if ($timedOut) {
-            Write-Warning $script:Msg.CustomCreateTO
+        $exitCode = if ($timedOut) { 124 } else { $createProc.ExitCode }
+        if ($timedOut -or $exitCode -ne 0) {
+            if ($timedOut) {
+                Write-Err ($script:Msg.CustomCreateTO -f $OllamaCreateTimeoutSec)
+            } else {
+                Write-Err ($script:Msg.CustomCreateFail -f $actionVerb)
+            }
             if ($stderrText -and $stderrText.Trim()) {
                 Write-Info $script:Msg.DownloadLastError
                 foreach ($line in ($stderrText -split "`n")) {
                     if ($line.Trim()) { Write-Host "      $($line.TrimEnd())" -ForegroundColor DarkGray }
                 }
             }
-            return
+            Write-Info ($script:Msg.CustomUnavail -f $script:CustomModelName)
+            $createFailed = $true
+        } else {
+            Write-Success ($script:Msg.CustomDone -f $actionVerb, $script:CustomModelName)
         }
-        $exitCode = $createProc.ExitCode
-        if ($exitCode -ne 0) {
-            Write-Warning ($script:Msg.CustomCreateFail -f $actionVerb)
-            if ($stderrText -and $stderrText.Trim()) {
-                Write-Info $script:Msg.DownloadLastError
-                foreach ($line in ($stderrText -split "`n")) {
-                    if ($line.Trim()) { Write-Host "      $($line.TrimEnd())" -ForegroundColor DarkGray }
-                }
-            }
-            return
-        }
-        Write-Success ($script:Msg.CustomDone -f $actionVerb, $script:CustomModelName)
     } finally {
         if ($null -ne $createProc) { try { $createProc.Dispose() } catch {} }
         if (Test-Path $modelfilePath) { Remove-Item -LiteralPath $modelfilePath -Force -ErrorAction SilentlyContinue }
         Remove-Item -LiteralPath $createOut -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $createErr -Force -ErrorAction SilentlyContinue
     }
+    # exit nach dem finally, damit die Temp-Dateien sicher entfernt sind
+    if ($createFailed) { exit 1 }
 }
 
 # ============================================================================
@@ -4189,7 +4224,7 @@ function Test-Installation {
     $testModel = $script:CustomModelName
 
     if (-not (Test-ModelInference -Model $testModel)) {
-        Write-Warning $script:Msg.InferenceFailed
+        Write-Warn $script:Msg.InferenceFailed
     }
 
     Show-BenchmarkResult -Model $testModel

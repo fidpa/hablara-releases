@@ -4,7 +4,7 @@
 # Hablará - Ollama Setup Script for macOS
 #
 # Usage: curl -fsSL https://raw.githubusercontent.com/fidpa/hablara-releases/main/scripts/setup-ollama-mac.sh | bash
-#        ./setup-ollama-mac.sh --model 3b
+#        ./setup-ollama-mac.sh --model qwen3-4b
 #        ./setup-ollama-mac.sh --diagnose
 #
 # Exit codes: 0=Success, 1=Error, 2=Disk space, 3=Network, 4=Platform
@@ -13,14 +13,46 @@ set -euo pipefail
 IFS=$'\n\t'
 export LC_NUMERIC=C
 
+# HOME kann fehlen (cron, launchd, env -i): set -u würde sonst beim ersten ${HOME} abbrechen
+if [[ -z "${HOME:-}" ]]; then
+  HOME="$(cd ~ 2>/dev/null && pwd)" || HOME="${TMPDIR:-/tmp}"
+  export HOME
+fi
+
 # ============================================================================
 # Configuration
 # ============================================================================
 
-readonly SCRIPT_VERSION="1.7.3"
-readonly OLLAMA_API_URL="http://localhost:11434"
+readonly SCRIPT_VERSION="1.8.1"
+
+# API-URL aus OLLAMA_HOST ableiten, damit curl-Prüfungen und die ollama-CLI denselben Server sehen.
+# Formate wie bei Ollama: "host:port", "http://host:port", "host" (Port 11434), "https://host" (443).
+_ollama_api_url_from_env() {
+  local host="${OLLAMA_HOST:-}"
+  local scheme="http"
+  if [[ -z "$host" ]]; then
+    echo "http://localhost:11434"
+    return 0
+  fi
+  case "$host" in
+    http://*)  host="${host#http://}" ;;
+    https://*) scheme="https"; host="${host#https://}" ;;
+  esac
+  host="${host%%/*}"
+  [[ -z "$host" ]] && host="localhost"
+  case "$host" in
+    *:*) ;;
+    *)
+      if [[ "$scheme" == "https" ]]; then host="${host}:443"; else host="${host}:11434"; fi
+      ;;
+  esac
+  echo "${scheme}://${host}"
+}
+# shellcheck disable=SC2155  # Funktion liefert immer 0; CI-Sync-Check erwartet die Konstante als `readonly X=`-Zeile
+readonly OLLAMA_API_URL="$(_ollama_api_url_from_env)"
 readonly OLLAMA_INSTALL_URL="https://ollama.com/install.sh"
 readonly MIN_OLLAMA_VERSION="0.3.0"
+readonly TIMEOUT_MODEL_CREATE=300
 
 MODEL_NAME=""
 CUSTOM_MODEL_NAME=""
@@ -36,17 +68,28 @@ LANG_CODE_FROM_FLAG=false
 MSG_ERROR_PREFIX="Fehler"  # Pre-init for errors before setup_messages()
 
 # Model config lookup (Bash 3.2 compatible - no associative arrays)
-# Returns: model_name|download_size|disk_gb|ram_warning_gb
+# Returns: model_name|download_size|disk_gb|ram_warning_gb|custom_name
+# custom_name ist optional: leer bedeutet "<model_name>-custom". Nötig für Basismodelle
+# mit datiertem Tag, deren Custom-Name kürzer ist (qwen3:4b-custom).
 get_model_config() {
   case "${1:-}" in
     1.5b)     echo "qwen2.5:1.5b|~1GB|3|" ;;
-    3b)       echo "qwen2.5:3b|~2GB|5|" ;;
+    qwen3-4b) echo "qwen3:4b-thinking-2507-q4_K_M|~2.5GB|5||qwen3:4b-custom" ;;
+    3b)       echo "qwen2.5:3b|~2GB|5|" ;;   # Legacy: nicht mehr angeboten, aber weiter nutzbar
     7b)       echo "qwen2.5:7b|~4.7GB|10|" ;;
     qwen3-8b) echo "qwen3:8b|~5.2GB|8|" ;;
     *)        return 1 ;;
   esac
 }
-readonly DEFAULT_MODEL="3b"
+# Custom-Modellname aus einer Konfigurationszeile (5. Feld, sonst abgeleitet)
+# SHARED: Must be identical in mac + linux templates
+custom_model_name_from_config() {
+  local model_name size disk ram custom
+  IFS='|' read -r model_name size disk ram custom <<< "${1:-}"
+  echo "${custom:-${model_name}-custom}"
+}
+
+readonly DEFAULT_MODEL="qwen3-4b"
 
 if [[ -t 1 ]]; then
   readonly COLOR_RESET='\033[0m'
@@ -79,7 +122,7 @@ spinner_start() {
   (
     local chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'  # 10 characters (keep i%10 in sync)
     local i=0
-    while [[ $i -lt 400 ]]; do  # max ~60s (400 * 0.15s)
+    while [[ $i -lt 4000 ]]; do  # Watchdog gegen Waisen: max ~10 min (4000 * 0.15s), länger als jede Operation mit Spinner
       printf '\r    %s %s' "${chars:$((i % 10)):1}" "$msg"
       i=$((i + 1))
       sleep 0.15
@@ -98,6 +141,11 @@ spinner_stop() {
 }
 
 command_exists() { command -v "$1" &> /dev/null; }
+
+# Ein Terminal ist nur nutzbar, wenn /dev/tty geöffnet werden kann. Der Test `-r` auf /dev/tty prüft nur
+# Dateirechte und ist auch ohne Sitzungs-Terminal wahr (nohup, cron, ssh ohne -t, CI):
+# jedes `read </dev/tty` bricht dann mit "Device not configured" ab.
+has_tty() { { : </dev/tty; } 2>/dev/null; }
 
 # Script self-reference (handles curl | bash where $0 is "bash")
 script_name() {
@@ -145,6 +193,10 @@ parse_lang_flag() {
           pl|PL) LANG_CODE="pl"; LANG_CODE_FROM_FLAG=true ;;
           sv|SV) LANG_CODE="sv"; LANG_CODE_FROM_FLAG=true ;;
           da|DA) LANG_CODE="da"; LANG_CODE_FROM_FLAG=true ;;
+          *)
+            # Unbekannter Code: Englisch statt stillschweigend Deutsch (Meldungen sind noch nicht geladen)
+            echo "Unsupported language '${val}', falling back to English (see --help for codes)" >&2
+            LANG_CODE="en"; LANG_CODE_FROM_FLAG=true ;;
         esac
       fi
       return 0
@@ -156,7 +208,7 @@ parse_lang_flag() {
 # Prompt user to select language (skips if --lang was given or no TTY)
 select_language() {
   [[ "${LANG_CODE_FROM_FLAG}" == "true" ]] && return 0
-  if [[ ! -r /dev/tty ]]; then
+  if ! has_tty; then
     LANG_CODE=$(detect_system_language)
     return 0
   fi
@@ -172,7 +224,7 @@ select_language() {
   echo "  9) Svenska" >&2
   echo " 10) Dansk" >&2
   echo "" >&2
-  echo -n "Sprache / Language / Idioma / Langue / Lingua / Taal / Idioma / Język / Sprog [1-10, Enter=1]: " >&2
+  printf '%s' "Sprache / Language / Idioma / Langue / Lingua / Taal / Idioma / Język / Sprog [1-10, Enter=1]: " >&2
   local choice
   read -t 30 -r choice </dev/tty || choice=""
   case "$choice" in
@@ -201,7 +253,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Choose a model:"
       MSG_CHOICE_PROMPT="Choice [1-4, Enter=1]"
-      MSG_MODEL_3B="Optimal overall performance [Default]"
+      MSG_MODEL_4B="Optimal overall performance [Default]"
       MSG_MODEL_1_5B="Fast, limited accuracy [Entry-level]"
       MSG_MODEL_7B="Requires high-performance hardware"
       MSG_MODEL_QWEN3="Best argumentation analysis [Premium]"
@@ -216,7 +268,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="Option %s requires an argument"
       MSG_UNKNOWN_OPTION="Unknown option: %s"
       MSG_INVALID_MODEL="Invalid model variant: %s"
-      MSG_VALID_VARIANTS="Valid variants: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Valid variants: 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="This model recommends at least %sGB RAM"
       MSG_RAM_WARN_SYS="Your system has %sGB RAM"
       MSG_CONTINUE_ANYWAY="Continue anyway?"
@@ -262,15 +314,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Installer timeout after 5 minutes"
       MSG_INSTALL_FAILED="Ollama installation failed"
       MSG_OLLAMA_INSTALLED="Ollama installed"
-      MSG_APT_HINT="Install: sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Ollama found: %s"
       MSG_OLLAMA_BREW_FOUND="Ollama via Homebrew found: %s"
       MSG_PORT_BUSY="Port 11434 is busy, waiting for Ollama API..."
       MSG_PORT_BUSY_WARN="Port 11434 busy but Ollama API not responding"
       MSG_PORT_CHECK_HINT="Check: lsof -i :11434"
       MSG_VERSION_WARN="Ollama version %s is older than recommended (%s)"
-      MSG_UPDATE_HINT_BREW="Update: brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Update: sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Update: https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Update: curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="Downloading base model..."
       MSG_MODEL_EXISTS="Model already present: %s"
@@ -297,7 +348,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Using Hablará configuration"
       MSG_USING_DEFAULT_CONFIG="Using default configuration"
       MSG_CUSTOM_CREATING="Creating Hablará model %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout after 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout after %ss"
       MSG_CUSTOM_CREATE_FAILED="Hablará model could not be %s"
       MSG_CUSTOM_DONE="Hablará model %s: %s"
       MSG_VERB_CREATED="created"
@@ -320,13 +371,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Ollama configuration:"
       MSG_MODEL_LABEL="  Model:    "
       MSG_BASE_URL_LABEL="  Base URL: "
-      MSG_DOCS="Documentation: https://github.com/fidpa/hablara"
+      MSG_DOCS="Documentation: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="Hablará Ollama Status (macOS)"
       MSG_STATUS_TITLE_LINUX="Hablará Ollama Status (Linux)"
       MSG_STATUS_INSTALLED="Ollama installed (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Update recommended (minimum v%s): brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Update recommended (minimum v%s): sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Update recommended (minimum v%s): https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Update recommended (minimum v%s): curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Ollama not found"
       MSG_STATUS_SERVER_OK="Server running"
       MSG_STATUS_SERVER_FAIL="Server not reachable"
@@ -386,6 +437,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU: AMD (ROCm acceleration, experimental)"
       MSG_GPU_STATUS_INTEL="GPU: Intel (oneAPI acceleration, experimental)"
       MSG_HOMEBREW_INSTALLED="Ollama installed via Homebrew"
+      MSG_BREW_SERVICE_START="Starting Ollama as a Homebrew service (autostart)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup requires an interactive session"
       MSG_CLEANUP_NO_OLLAMA="Ollama not found"
@@ -393,7 +445,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Start Ollama and try again"
       MSG_CLEANUP_INSTALLED="Installed Hablará variants:"
       MSG_CLEANUP_PROMPT="Which variant to delete? (number, Enter=cancel, timeout 60s): "
-      MSG_CLEANUP_ENTER_CANCEL="Enter=cancel"
       MSG_CLEANUP_INVALID="Invalid selection"
       MSG_CLEANUP_DELETED="%s deleted"
       MSG_CLEANUP_FAILED="%s could not be deleted: %s"
@@ -412,11 +463,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list timeout (15s) during model check"
       # Linux-specific service management
       MSG_SYSTEMD_START="Starting Ollama service..."
-      MSG_SYSTEMD_ENABLE="Enabling Ollama service..."
-      MSG_SYSTEMD_START_FAIL="Could not start Ollama service"
-      MSG_SERVICE_MANUAL="Start manually: ollama serve"
-      MSG_LINUX_CURL_INSTALL="Installing curl first..."
-      MSG_LINUX_INSTALL_HINT="Install curl: sudo apt-get install -y curl"
       # Server management (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="Ollama server is already running"
       MSG_PORT_CHECK_HINT_SS="Check: ss -tlnp | grep 11434"
@@ -436,7 +482,7 @@ setup_messages() {
       MSG_HELP_USAGE="Usage:"
       MSG_HELP_OPTS_LABEL="OPTIONS"
       MSG_HELP_OPTIONS="Options:"
-      MSG_HELP_OPT_MODEL="  -m, --model VARIANT   Choose model variant: 1.5b, 3b, 7b, qwen3-8b (default: 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model VARIANT   Choose model variant: 1.5b, qwen3-4b, 7b, qwen3-8b (default: qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Recreate Hablará custom model (update Modelfile)"
       MSG_HELP_OPT_STATUS="  --status              Health check: 7-point Ollama installation check"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Generate support report (plain text, copyable)"
@@ -446,12 +492,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Without options, an interactive menu starts."
       MSG_HELP_VARIANTS="Model variants:"
       MSG_HELP_EXAMPLES="Examples:"
-      MSG_HELP_EX_MODEL="--model 3b                          Install 3b variant"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    Install qwen3-4b variant"
       MSG_HELP_EX_UPDATE="--update                            Update custom model"
       MSG_HELP_EX_STATUS="--status                            Check installation"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Create bug report"
       MSG_HELP_EX_CLEANUP="--cleanup                           Remove variant"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Via pipe with argument"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Via pipe with argument"
       MSG_HELP_EXIT_CODES="Exit codes:"
       MSG_HELP_EXIT_0="  0  Success"
       MSG_HELP_EXIT_1="  1  General error"
@@ -484,7 +530,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Elige un modelo:"
       MSG_CHOICE_PROMPT="Selección [1-4, Enter=1]"
-      MSG_MODEL_3B="Rendimiento general óptimo [Por defecto]"
+      MSG_MODEL_4B="Rendimiento general óptimo [Por defecto]"
       MSG_MODEL_1_5B="Rápido, precisión limitada [Básico]"
       MSG_MODEL_7B="Requiere hardware de alto rendimiento"
       MSG_MODEL_QWEN3="Mejor análisis de argumentación [Premium]"
@@ -499,7 +545,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="La opción %s requiere un argumento"
       MSG_UNKNOWN_OPTION="Opción desconocida: %s"
       MSG_INVALID_MODEL="Variante de modelo no válida: %s"
-      MSG_VALID_VARIANTS="Variantes válidas: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Variantes válidas: 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="Este modelo recomienda al menos %sGB de RAM"
       MSG_RAM_WARN_SYS="Tu sistema tiene %sGB de RAM"
       MSG_CONTINUE_ANYWAY="¿Continuar de todas formas?"
@@ -545,15 +591,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Tiempo límite del instalador superado (5 minutos)"
       MSG_INSTALL_FAILED="Instalación de Ollama fallida"
       MSG_OLLAMA_INSTALLED="Ollama instalado"
-      MSG_APT_HINT="Instalar: sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Ollama encontrado: %s"
       MSG_OLLAMA_BREW_FOUND="Ollama vía Homebrew encontrado: %s"
       MSG_PORT_BUSY="Puerto 11434 ocupado, esperando API de Ollama..."
       MSG_PORT_BUSY_WARN="Puerto 11434 ocupado pero la API de Ollama no responde"
       MSG_PORT_CHECK_HINT="Comprueba: lsof -i :11434"
       MSG_VERSION_WARN="La versión de Ollama %s es anterior a la recomendada (%s)"
-      MSG_UPDATE_HINT_BREW="Actualizar: brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Actualizar: sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Actualizar: https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Actualizar: curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="Descargando modelo base..."
       MSG_MODEL_EXISTS="Modelo ya presente: %s"
@@ -580,7 +625,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Usando configuración de Hablará"
       MSG_USING_DEFAULT_CONFIG="Usando configuración por defecto"
       MSG_CUSTOM_CREATING="Creando modelo Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create superó el tiempo límite de 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create superó el tiempo límite de %ss"
       MSG_CUSTOM_CREATE_FAILED="El modelo Hablará no pudo ser %s"
       MSG_CUSTOM_DONE="Modelo Hablará %s: %s"
       MSG_VERB_CREATED="creado"
@@ -603,13 +648,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Configuración de Ollama:"
       MSG_MODEL_LABEL="  Modelo:   "
       MSG_BASE_URL_LABEL="  Base URL: "
-      MSG_DOCS="Documentación: https://github.com/fidpa/hablara"
+      MSG_DOCS="Documentación: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="Estado Ollama de Hablará (macOS)"
       MSG_STATUS_TITLE_LINUX="Estado Ollama de Hablará (Linux)"
       MSG_STATUS_INSTALLED="Ollama instalado (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Actualización recomendada (mínimo v%s): brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Actualización recomendada (mínimo v%s): sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Actualización recomendada (mínimo v%s): https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Actualización recomendada (mínimo v%s): curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Ollama no encontrado"
       MSG_STATUS_SERVER_OK="Servidor en ejecución"
       MSG_STATUS_SERVER_FAIL="Servidor no accesible"
@@ -669,6 +714,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU: AMD (aceleración ROCm, experimental)"
       MSG_GPU_STATUS_INTEL="GPU: Intel (aceleración oneAPI, experimental)"
       MSG_HOMEBREW_INSTALLED="Ollama instalado vía Homebrew"
+      MSG_BREW_SERVICE_START="Iniciando Ollama como servicio de Homebrew (inicio automático)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup requiere una sesión interactiva"
       MSG_CLEANUP_NO_OLLAMA="Ollama no encontrado"
@@ -676,7 +722,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Inicia Ollama e inténtalo de nuevo"
       MSG_CLEANUP_INSTALLED="Variantes Hablará instaladas:"
       MSG_CLEANUP_PROMPT="¿Qué variante eliminar? (número, Enter=cancelar, tiempo límite 60s): "
-      MSG_CLEANUP_ENTER_CANCEL="Enter=cancelar"
       MSG_CLEANUP_INVALID="Selección no válida"
       MSG_CLEANUP_DELETED="%s eliminado"
       MSG_CLEANUP_FAILED="%s no se pudo eliminar: %s"
@@ -695,11 +740,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list superó el tiempo límite (15s) durante la comprobación del modelo"
       # Linux-specific service management
       MSG_SYSTEMD_START="Iniciando servicio Ollama..."
-      MSG_SYSTEMD_ENABLE="Habilitando servicio Ollama..."
-      MSG_SYSTEMD_START_FAIL="No se pudo iniciar el servicio Ollama"
-      MSG_SERVICE_MANUAL="Iniciar manualmente: ollama serve"
-      MSG_LINUX_CURL_INSTALL="Instalando curl primero..."
-      MSG_LINUX_INSTALL_HINT="Instalar curl: sudo apt-get install -y curl"
       # Server management (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="El servidor Ollama ya está en ejecución"
       MSG_PORT_CHECK_HINT_SS="Comprueba: ss -tlnp | grep 11434"
@@ -719,7 +759,7 @@ setup_messages() {
       MSG_HELP_USAGE="Uso:"
       MSG_HELP_OPTS_LABEL="OPCIONES"
       MSG_HELP_OPTIONS="Opciones:"
-      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Elegir variante de modelo: 1.5b, 3b, 7b, qwen3-8b (por defecto: 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Elegir variante de modelo: 1.5b, qwen3-4b, 7b, qwen3-8b (por defecto: qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Recrear modelo personalizado Hablará (actualizar Modelfile)"
       MSG_HELP_OPT_STATUS="  --status              Health check: comprobación de 7 puntos de la instalación de Ollama"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Generar informe de soporte (texto plano, copiable)"
@@ -729,12 +769,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Sin opciones, se inicia un menú interactivo."
       MSG_HELP_VARIANTS="Variantes de modelo:"
       MSG_HELP_EXAMPLES="Ejemplos:"
-      MSG_HELP_EX_MODEL="--model 3b                          Instalar variante 3b"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    Instalar variante qwen3-4b"
       MSG_HELP_EX_UPDATE="--update                            Actualizar modelo personalizado"
       MSG_HELP_EX_STATUS="--status                            Comprobar instalación"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Crear informe de error"
       MSG_HELP_EX_CLEANUP="--cleanup                           Eliminar variante"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Vía pipe con argumento"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Vía pipe con argumento"
       MSG_HELP_EXIT_CODES="Códigos de salida:"
       MSG_HELP_EXIT_0="  0  Éxito"
       MSG_HELP_EXIT_1="  1  Error general"
@@ -767,7 +807,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Choisissez un modèle :"
       MSG_CHOICE_PROMPT="Sélection [1-4, Entrée=1]"
-      MSG_MODEL_3B="Performance optimale [Par défaut]"
+      MSG_MODEL_4B="Performance optimale [Par défaut]"
       MSG_MODEL_1_5B="Rapide, précision limitée [Entrée de gamme]"
       MSG_MODEL_7B="Nécessite du matériel haute performance"
       MSG_MODEL_QWEN3="Meilleure analyse d'argumentation [Premium]"
@@ -782,7 +822,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="L'option %s nécessite un argument"
       MSG_UNKNOWN_OPTION="Option inconnue : %s"
       MSG_INVALID_MODEL="Variante de modèle invalide : %s"
-      MSG_VALID_VARIANTS="Variantes valides : qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Variantes valides : 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="Ce modèle recommande au moins %s Go de RAM"
       MSG_RAM_WARN_SYS="Votre système dispose de %s Go de RAM"
       MSG_CONTINUE_ANYWAY="Continuer quand même ?"
@@ -828,15 +868,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Délai de l'installateur dépassé (5 minutes)"
       MSG_INSTALL_FAILED="Échec de l'installation d'Ollama"
       MSG_OLLAMA_INSTALLED="Ollama installé"
-      MSG_APT_HINT="Installer : sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Ollama trouvé : %s"
       MSG_OLLAMA_BREW_FOUND="Ollama via Homebrew trouvé : %s"
       MSG_PORT_BUSY="Le port 11434 est occupé, en attente de l'API Ollama..."
       MSG_PORT_BUSY_WARN="Port 11434 occupé mais l'API Ollama ne répond pas"
       MSG_PORT_CHECK_HINT="Vérifiez : lsof -i :11434"
       MSG_VERSION_WARN="La version Ollama %s est plus ancienne que recommandé (%s)"
-      MSG_UPDATE_HINT_BREW="Mise à jour : brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Mise à jour : sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Mise à jour : https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Mise à jour : curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="Téléchargement du modèle de base..."
       MSG_MODEL_EXISTS="Modèle déjà présent : %s"
@@ -863,7 +902,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Utilisation de la configuration Hablará"
       MSG_USING_DEFAULT_CONFIG="Utilisation de la configuration par défaut"
       MSG_CUSTOM_CREATING="Création du modèle Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create a dépassé le délai de 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create a dépassé le délai de %ss"
       MSG_CUSTOM_CREATE_FAILED="Le modèle Hablará n'a pas pu être %s"
       MSG_CUSTOM_DONE="Modèle Hablará %s : %s"
       MSG_VERB_CREATED="créé"
@@ -886,13 +925,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Configuration Ollama :"
       MSG_MODEL_LABEL="  Modèle :   "
       MSG_BASE_URL_LABEL="  Base URL : "
-      MSG_DOCS="Documentation : https://github.com/fidpa/hablara"
+      MSG_DOCS="Documentation : https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="État Ollama Hablará (macOS)"
       MSG_STATUS_TITLE_LINUX="État Ollama Hablará (Linux)"
       MSG_STATUS_INSTALLED="Ollama installé (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Mise à jour recommandée (minimum v%s) : brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Mise à jour recommandée (minimum v%s) : sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Mise à jour recommandée (minimum v%s) : https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Mise à jour recommandée (minimum v%s) : curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Ollama introuvable"
       MSG_STATUS_SERVER_OK="Serveur en cours d'exécution"
       MSG_STATUS_SERVER_FAIL="Serveur inaccessible"
@@ -952,6 +991,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU : AMD (accélération ROCm, expérimental)"
       MSG_GPU_STATUS_INTEL="GPU : Intel (accélération oneAPI, expérimental)"
       MSG_HOMEBREW_INSTALLED="Ollama installé via Homebrew"
+      MSG_BREW_SERVICE_START="Démarrage d'Ollama comme service Homebrew (démarrage automatique)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup nécessite une session interactive"
       MSG_CLEANUP_NO_OLLAMA="Ollama introuvable"
@@ -959,7 +999,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Démarrez Ollama et réessayez"
       MSG_CLEANUP_INSTALLED="Variantes Hablará installées :"
       MSG_CLEANUP_PROMPT="Quelle variante supprimer ? (numéro, Entrée=annuler, délai 60s) : "
-      MSG_CLEANUP_ENTER_CANCEL="Entrée=annuler"
       MSG_CLEANUP_INVALID="Sélection invalide"
       MSG_CLEANUP_DELETED="%s supprimé"
       MSG_CLEANUP_FAILED="%s n'a pas pu être supprimé : %s"
@@ -978,11 +1017,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list a dépassé le délai (15s) lors de la vérification du modèle"
       # Linux-specific service management
       MSG_SYSTEMD_START="Démarrage du service Ollama..."
-      MSG_SYSTEMD_ENABLE="Activation du service Ollama..."
-      MSG_SYSTEMD_START_FAIL="Impossible de démarrer le service Ollama"
-      MSG_SERVICE_MANUAL="Démarrer manuellement : ollama serve"
-      MSG_LINUX_CURL_INSTALL="Installation de curl d'abord..."
-      MSG_LINUX_INSTALL_HINT="Installer curl : sudo apt-get install -y curl"
       # Server management (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="Le serveur Ollama est déjà en cours d'exécution"
       MSG_PORT_CHECK_HINT_SS="Vérifiez : ss -tlnp | grep 11434"
@@ -1002,7 +1036,7 @@ setup_messages() {
       MSG_HELP_USAGE="Utilisation :"
       MSG_HELP_OPTS_LABEL="OPTIONS"
       MSG_HELP_OPTIONS="Options :"
-      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Choisir la variante : 1.5b, 3b, 7b, qwen3-8b (par défaut : 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Choisir la variante : 1.5b, qwen3-4b, 7b, qwen3-8b (par défaut : qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Recréer le modèle Hablará (mettre à jour le Modelfile)"
       MSG_HELP_OPT_STATUS="  --status              Vérification : contrôle en 7 points de l'installation Ollama"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Générer un rapport d'assistance (texte brut, copiable)"
@@ -1012,12 +1046,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Sans options, un menu interactif démarre."
       MSG_HELP_VARIANTS="Variantes de modèle :"
       MSG_HELP_EXAMPLES="Exemples :"
-      MSG_HELP_EX_MODEL="--model 3b                          Installer la variante 3b"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    Installer la variante qwen3-4b"
       MSG_HELP_EX_UPDATE="--update                            Mettre à jour le modèle personnalisé"
       MSG_HELP_EX_STATUS="--status                            Vérifier l'installation"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Créer un rapport de bug"
       MSG_HELP_EX_CLEANUP="--cleanup                           Supprimer une variante"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Via pipe avec argument"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Via pipe avec argument"
       MSG_HELP_EXIT_CODES="Codes de sortie :"
       MSG_HELP_EXIT_0="  0  Succès"
       MSG_HELP_EXIT_1="  1  Erreur générale"
@@ -1050,7 +1084,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Scegli un modello:"
       MSG_CHOICE_PROMPT="Selezione [1-4, Invio=1]"
-      MSG_MODEL_3B="Prestazioni generali ottimali [Predefinito]"
+      MSG_MODEL_4B="Prestazioni generali ottimali [Predefinito]"
       MSG_MODEL_1_5B="Veloce, precisione limitata [Base]"
       MSG_MODEL_7B="Richiede hardware ad alte prestazioni"
       MSG_MODEL_QWEN3="Migliore analisi dell'argomentazione [Premium]"
@@ -1065,7 +1099,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="L'opzione %s richiede un argomento"
       MSG_UNKNOWN_OPTION="Opzione sconosciuta: %s"
       MSG_INVALID_MODEL="Variante di modello non valida: %s"
-      MSG_VALID_VARIANTS="Varianti valide: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Varianti valide: 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="Questo modello richiede almeno %sGB di RAM"
       MSG_RAM_WARN_SYS="Il tuo sistema ha %sGB di RAM"
       MSG_CONTINUE_ANYWAY="Continuare comunque?"
@@ -1111,15 +1145,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Tempo massimo del programma di installazione superato (5 minuti)"
       MSG_INSTALL_FAILED="Installazione di Ollama fallita"
       MSG_OLLAMA_INSTALLED="Ollama installato"
-      MSG_APT_HINT="Installare: sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Ollama trovato: %s"
       MSG_OLLAMA_BREW_FOUND="Ollama via Homebrew trovato: %s"
       MSG_PORT_BUSY="La porta 11434 è occupata, in attesa dell'API Ollama..."
       MSG_PORT_BUSY_WARN="Porta 11434 occupata ma l'API Ollama non risponde"
       MSG_PORT_CHECK_HINT="Verifica: lsof -i :11434"
       MSG_VERSION_WARN="La versione Ollama %s è precedente a quella raccomandata (%s)"
-      MSG_UPDATE_HINT_BREW="Aggiornare: brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Aggiornare: sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Aggiornare: https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Aggiornare: curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="Scaricamento del modello base..."
       MSG_MODEL_EXISTS="Modello già presente: %s"
@@ -1146,7 +1179,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Utilizzo della configurazione Hablará"
       MSG_USING_DEFAULT_CONFIG="Utilizzo della configurazione predefinita"
       MSG_CUSTOM_CREATING="Creazione del modello Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create ha superato il tempo massimo di 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create ha superato il tempo massimo di %ss"
       MSG_CUSTOM_CREATE_FAILED="Il modello Hablará non ha potuto essere %s"
       MSG_CUSTOM_DONE="Modello Hablará %s: %s"
       MSG_VERB_CREATED="creato"
@@ -1169,13 +1202,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Configurazione Ollama:"
       MSG_MODEL_LABEL="  Modello:   "
       MSG_BASE_URL_LABEL="  Base URL: "
-      MSG_DOCS="Documentazione: https://github.com/fidpa/hablara"
+      MSG_DOCS="Documentazione: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="Stato Ollama Hablará (macOS)"
       MSG_STATUS_TITLE_LINUX="Stato Ollama Hablará (Linux)"
       MSG_STATUS_INSTALLED="Ollama installato (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Aggiornamento raccomandato (minimo v%s): brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Aggiornamento raccomandato (minimo v%s): sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Aggiornamento raccomandato (minimo v%s): https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Aggiornamento raccomandato (minimo v%s): curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Ollama non trovato"
       MSG_STATUS_SERVER_OK="Server in esecuzione"
       MSG_STATUS_SERVER_FAIL="Server non raggiungibile"
@@ -1235,6 +1268,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU: AMD (accelerazione ROCm, sperimentale)"
       MSG_GPU_STATUS_INTEL="GPU: Intel (accelerazione oneAPI, sperimentale)"
       MSG_HOMEBREW_INSTALLED="Ollama installato via Homebrew"
+      MSG_BREW_SERVICE_START="Avvio di Ollama come servizio Homebrew (avvio automatico)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup richiede una sessione interattiva"
       MSG_CLEANUP_NO_OLLAMA="Ollama non trovato"
@@ -1242,7 +1276,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Avvia Ollama e riprova"
       MSG_CLEANUP_INSTALLED="Varianti Hablará installate:"
       MSG_CLEANUP_PROMPT="Quale variante eliminare? (numero, Invio=annulla, tempo massimo 60s): "
-      MSG_CLEANUP_ENTER_CANCEL="Invio=annulla"
       MSG_CLEANUP_INVALID="Selezione non valida"
       MSG_CLEANUP_DELETED="%s eliminato"
       MSG_CLEANUP_FAILED="%s non ha potuto essere eliminato: %s"
@@ -1261,11 +1294,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list ha superato il tempo massimo (15s) durante il controllo del modello"
       # Linux-specific service management
       MSG_SYSTEMD_START="Avvio del servizio Ollama..."
-      MSG_SYSTEMD_ENABLE="Abilitazione del servizio Ollama..."
-      MSG_SYSTEMD_START_FAIL="Impossibile avviare il servizio Ollama"
-      MSG_SERVICE_MANUAL="Avviare manualmente: ollama serve"
-      MSG_LINUX_CURL_INSTALL="Installazione di curl prima..."
-      MSG_LINUX_INSTALL_HINT="Installare curl: sudo apt-get install -y curl"
       # Server management (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="Il server Ollama è già in esecuzione"
       MSG_PORT_CHECK_HINT_SS="Verifica: ss -tlnp | grep 11434"
@@ -1285,7 +1313,7 @@ setup_messages() {
       MSG_HELP_USAGE="Utilizzo:"
       MSG_HELP_OPTS_LABEL="OPZIONI"
       MSG_HELP_OPTIONS="Opzioni:"
-      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Scegli la variante: 1.5b, 3b, 7b, qwen3-8b (predefinito: 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Scegli la variante: 1.5b, qwen3-4b, 7b, qwen3-8b (predefinito: qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Ricreare il modello Hablará (aggiornare il Modelfile)"
       MSG_HELP_OPT_STATUS="  --status              Verifica: controllo in 7 punti dell'installazione Ollama"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Generare rapporto di supporto (testo normale, copiabile)"
@@ -1295,12 +1323,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Senza opzioni, viene avviato un menu interattivo."
       MSG_HELP_VARIANTS="Varianti del modello:"
       MSG_HELP_EXAMPLES="Esempi:"
-      MSG_HELP_EX_MODEL="--model 3b                          Installare la variante 3b"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    Installare la variante qwen3-4b"
       MSG_HELP_EX_UPDATE="--update                            Aggiornare il modello personalizzato"
       MSG_HELP_EX_STATUS="--status                            Verificare l'installazione"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Creare rapporto di bug"
       MSG_HELP_EX_CLEANUP="--cleanup                           Rimuovere la variante"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Tramite pipe con argomento"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Tramite pipe con argomento"
       MSG_HELP_EXIT_CODES="Codici di uscita:"
       MSG_HELP_EXIT_0="  0  Successo"
       MSG_HELP_EXIT_1="  1  Errore generale"
@@ -1333,7 +1361,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Kies een model:"
       MSG_CHOICE_PROMPT="Keuze [1-4, Enter=1]"
-      MSG_MODEL_3B="Optimale algehele prestaties [Standaard]"
+      MSG_MODEL_4B="Optimale algehele prestaties [Standaard]"
       MSG_MODEL_1_5B="Snel, beperkte nauwkeurigheid [Instap]"
       MSG_MODEL_7B="Vereist krachtige hardware"
       MSG_MODEL_QWEN3="Beste argumentatieanalyse [Premium]"
@@ -1348,7 +1376,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="Optie %s vereist een argument"
       MSG_UNKNOWN_OPTION="Onbekende optie: %s"
       MSG_INVALID_MODEL="Ongeldige modelvariante: %s"
-      MSG_VALID_VARIANTS="Geldige varianten: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Geldige varianten: 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="Dit model vereist minimaal %sGB RAM"
       MSG_RAM_WARN_SYS="Uw systeem heeft %sGB RAM"
       MSG_CONTINUE_ANYWAY="Toch doorgaan?"
@@ -1394,15 +1422,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Installatieprogramma time-out na 5 minuten"
       MSG_INSTALL_FAILED="Ollama-installatie mislukt"
       MSG_OLLAMA_INSTALLED="Ollama geïnstalleerd"
-      MSG_APT_HINT="Installeren: sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Ollama gevonden: %s"
       MSG_OLLAMA_BREW_FOUND="Ollama via Homebrew gevonden: %s"
       MSG_PORT_BUSY="Poort 11434 is bezet, wachten op Ollama API..."
       MSG_PORT_BUSY_WARN="Poort 11434 bezet, maar Ollama API reageert niet"
       MSG_PORT_CHECK_HINT="Controleer: lsof -i :11434"
       MSG_VERSION_WARN="Ollama versie %s is ouder dan aanbevolen (%s)"
-      MSG_UPDATE_HINT_BREW="Bijwerken: brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Bijwerken: sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Bijwerken: https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Bijwerken: curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="Basismodel downloaden..."
       MSG_MODEL_EXISTS="Model al aanwezig: %s"
@@ -1429,7 +1456,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Hablará-configuratie gebruiken"
       MSG_USING_DEFAULT_CONFIG="Standaardconfiguratie gebruiken"
       MSG_CUSTOM_CREATING="Hablará-model %s aanmaken..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create time-out na 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create time-out na %ss"
       MSG_CUSTOM_CREATE_FAILED="Hablará-model kon niet worden %s"
       MSG_CUSTOM_DONE="Hablará-model %s: %s"
       MSG_VERB_CREATED="aangemaakt"
@@ -1452,13 +1479,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Ollama-configuratie:"
       MSG_MODEL_LABEL="  Model:    "
       MSG_BASE_URL_LABEL="  Base URL: "
-      MSG_DOCS="Documentatie: https://github.com/fidpa/hablara"
+      MSG_DOCS="Documentatie: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="Hablará Ollama Status (macOS)"
       MSG_STATUS_TITLE_LINUX="Hablará Ollama Status (Linux)"
       MSG_STATUS_INSTALLED="Ollama geïnstalleerd (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Update aanbevolen (minimaal v%s): brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Update aanbevolen (minimaal v%s): sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Update aanbevolen (minimaal v%s): https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Update aanbevolen (minimaal v%s): curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Ollama niet gevonden"
       MSG_STATUS_SERVER_OK="Server actief"
       MSG_STATUS_SERVER_FAIL="Server niet bereikbaar"
@@ -1518,6 +1545,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU: AMD (ROCm-versnelling, experimenteel)"
       MSG_GPU_STATUS_INTEL="GPU: Intel (oneAPI-versnelling, experimenteel)"
       MSG_HOMEBREW_INSTALLED="Ollama via Homebrew geïnstalleerd"
+      MSG_BREW_SERVICE_START="Ollama wordt gestart als Homebrew-service (automatisch starten)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup vereist een interactieve sessie"
       MSG_CLEANUP_NO_OLLAMA="Ollama niet gevonden"
@@ -1525,7 +1553,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Start Ollama en probeer opnieuw"
       MSG_CLEANUP_INSTALLED="Geïnstalleerde Hablará-varianten:"
       MSG_CLEANUP_PROMPT="Welke variant verwijderen? (nummer, Enter=annuleren, time-out 60s): "
-      MSG_CLEANUP_ENTER_CANCEL="Enter=annuleren"
       MSG_CLEANUP_INVALID="Ongeldige selectie"
       MSG_CLEANUP_DELETED="%s verwijderd"
       MSG_CLEANUP_FAILED="%s kon niet worden verwijderd: %s"
@@ -1544,11 +1571,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list time-out (15s) bij modelcontrole"
       # Linux-specific service management
       MSG_SYSTEMD_START="Ollama-service starten..."
-      MSG_SYSTEMD_ENABLE="Ollama-service inschakelen..."
-      MSG_SYSTEMD_START_FAIL="Kon de Ollama-service niet starten"
-      MSG_SERVICE_MANUAL="Handmatig starten: ollama serve"
-      MSG_LINUX_CURL_INSTALL="curl installeren..."
-      MSG_LINUX_INSTALL_HINT="curl installeren: sudo apt-get install -y curl"
       # Server management (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="Ollama-server is al actief"
       MSG_PORT_CHECK_HINT_SS="Controleer: ss -tlnp | grep 11434"
@@ -1568,7 +1590,7 @@ setup_messages() {
       MSG_HELP_USAGE="Gebruik:"
       MSG_HELP_OPTS_LABEL="OPTIES"
       MSG_HELP_OPTIONS="Opties:"
-      MSG_HELP_OPT_MODEL="  -m, --model VARIANT   Modelvariante kiezen: 1.5b, 3b, 7b, qwen3-8b (standaard: 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model VARIANT   Modelvariante kiezen: 1.5b, qwen3-4b, 7b, qwen3-8b (standaard: qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Hablará-aangepast model opnieuw aanmaken (Modelfile bijwerken)"
       MSG_HELP_OPT_STATUS="  --status              Statuscontrole: 7-punts controle van de Ollama-installatie"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Ondersteuningsrapport genereren (platte tekst, kopieerbaar)"
@@ -1578,12 +1600,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Zonder opties wordt een interactief menu gestart."
       MSG_HELP_VARIANTS="Modelvarianten:"
       MSG_HELP_EXAMPLES="Voorbeelden:"
-      MSG_HELP_EX_MODEL="--model 3b                          3b-variant installeren"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    qwen3-4b-variant installeren"
       MSG_HELP_EX_UPDATE="--update                            Aangepast model bijwerken"
       MSG_HELP_EX_STATUS="--status                            Installatie controleren"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Bugrapport aanmaken"
       MSG_HELP_EX_CLEANUP="--cleanup                           Variant verwijderen"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Via pipe met argument"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Via pipe met argument"
       MSG_HELP_EXIT_CODES="Afsluitcodes:"
       MSG_HELP_EXIT_0="  0  Geslaagd"
       MSG_HELP_EXIT_1="  1  Algemene fout"
@@ -1616,7 +1638,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Escolha um modelo:"
       MSG_CHOICE_PROMPT="Opção [1-4, Enter=1]"
-      MSG_MODEL_3B="Melhor desempenho geral [Padrão]"
+      MSG_MODEL_4B="Melhor desempenho geral [Padrão]"
       MSG_MODEL_1_5B="Rápido, precisão limitada [Básico]"
       MSG_MODEL_7B="Requer hardware potente"
       MSG_MODEL_QWEN3="Melhor análise de argumentação [Premium]"
@@ -1631,7 +1653,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="A opção %s requer um argumento"
       MSG_UNKNOWN_OPTION="Opção desconhecida: %s"
       MSG_INVALID_MODEL="Variante de modelo inválida: %s"
-      MSG_VALID_VARIANTS="Variantes válidas: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Variantes válidas: 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="Este modelo requer pelo menos %sGB de RAM"
       MSG_RAM_WARN_SYS="O seu sistema tem %sGB de RAM"
       MSG_CONTINUE_ANYWAY="Continuar mesmo assim?"
@@ -1677,15 +1699,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Instalador atingiu o tempo limite de 5 minutos"
       MSG_INSTALL_FAILED="Instalação do Ollama falhou"
       MSG_OLLAMA_INSTALLED="Ollama instalado"
-      MSG_APT_HINT="Instalar: sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Ollama encontrado: %s"
       MSG_OLLAMA_BREW_FOUND="Ollama via Homebrew encontrado: %s"
       MSG_PORT_BUSY="Porta 11434 ocupada, a aguardar a API do Ollama..."
       MSG_PORT_BUSY_WARN="Porta 11434 ocupada, mas a API do Ollama não responde"
       MSG_PORT_CHECK_HINT="Verificar: lsof -i :11434"
       MSG_VERSION_WARN="Ollama versão %s é mais antiga que a recomendada (%s)"
-      MSG_UPDATE_HINT_BREW="Atualizar: brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Atualizar: sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Atualizar: https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Atualizar: curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="A descarregar o modelo base..."
       MSG_MODEL_EXISTS="Modelo já disponível: %s"
@@ -1712,7 +1733,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="A utilizar a configuração Hablará"
       MSG_USING_DEFAULT_CONFIG="A utilizar a configuração padrão"
       MSG_CUSTOM_CREATING="A criar o modelo Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create atingiu o tempo limite de 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create atingiu o tempo limite de %ss"
       MSG_CUSTOM_CREATE_FAILED="Não foi possível %s o modelo Hablará"
       MSG_CUSTOM_DONE="Modelo Hablará %s: %s"
       MSG_VERB_CREATED="criado"
@@ -1735,13 +1756,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Configuração do Ollama:"
       MSG_MODEL_LABEL="  Modelo:    "
       MSG_BASE_URL_LABEL="  Base URL: "
-      MSG_DOCS="Documentação: https://github.com/fidpa/hablara"
+      MSG_DOCS="Documentação: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="Hablará Ollama Status (macOS)"
       MSG_STATUS_TITLE_LINUX="Hablará Ollama Status (Linux)"
       MSG_STATUS_INSTALLED="Ollama instalado (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Atualização recomendada (mínimo v%s): brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Atualização recomendada (mínimo v%s): sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Atualização recomendada (mínimo v%s): https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Atualização recomendada (mínimo v%s): curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Ollama não encontrado"
       MSG_STATUS_SERVER_OK="Servidor em execução"
       MSG_STATUS_SERVER_FAIL="Servidor inacessível"
@@ -1801,6 +1822,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU: AMD (aceleração ROCm, experimental)"
       MSG_GPU_STATUS_INTEL="GPU: Intel (aceleração oneAPI, experimental)"
       MSG_HOMEBREW_INSTALLED="Ollama instalado via Homebrew"
+      MSG_BREW_SERVICE_START="Iniciando Ollama como serviço do Homebrew (início automático)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup requer uma sessão interativa"
       MSG_CLEANUP_NO_OLLAMA="Ollama não encontrado"
@@ -1808,7 +1830,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Inicie o Ollama e tente novamente"
       MSG_CLEANUP_INSTALLED="Variantes Hablará instaladas:"
       MSG_CLEANUP_PROMPT="Qual variante remover? (número, Enter=cancelar, tempo limite 60s): "
-      MSG_CLEANUP_ENTER_CANCEL="Enter=cancelar"
       MSG_CLEANUP_INVALID="Seleção inválida"
       MSG_CLEANUP_DELETED="%s removido"
       MSG_CLEANUP_FAILED="Não foi possível remover %s: %s"
@@ -1827,11 +1848,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list atingiu o tempo limite (15s) na verificação do modelo"
       # Linux-specific service management
       MSG_SYSTEMD_START="A iniciar o serviço Ollama..."
-      MSG_SYSTEMD_ENABLE="A ativar o serviço Ollama..."
-      MSG_SYSTEMD_START_FAIL="Não foi possível iniciar o serviço Ollama"
-      MSG_SERVICE_MANUAL="Iniciar manualmente: ollama serve"
-      MSG_LINUX_CURL_INSTALL="A instalar curl..."
-      MSG_LINUX_INSTALL_HINT="Instalar curl: sudo apt-get install -y curl"
       # Server management (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="O servidor Ollama já está em execução"
       MSG_PORT_CHECK_HINT_SS="Verificar: ss -tlnp | grep 11434"
@@ -1851,7 +1867,7 @@ setup_messages() {
       MSG_HELP_USAGE="Uso:"
       MSG_HELP_OPTS_LABEL="OPÇÕES"
       MSG_HELP_OPTIONS="Opções:"
-      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Escolher variante: 1.5b, 3b, 7b, qwen3-8b (padrão: 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Escolher variante: 1.5b, qwen3-4b, 7b, qwen3-8b (padrão: qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Recriar o modelo personalizado Hablará (atualizar Modelfile)"
       MSG_HELP_OPT_STATUS="  --status              Verificação de status: 7 pontos de verificação da instalação do Ollama"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Gerar relatório de suporte (texto simples, copiável)"
@@ -1861,12 +1877,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Sem opções, é iniciado um menu interativo."
       MSG_HELP_VARIANTS="Variantes de modelos:"
       MSG_HELP_EXAMPLES="Exemplos:"
-      MSG_HELP_EX_MODEL="--model 3b                          Instalar variante 3b"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    Instalar variante qwen3-4b"
       MSG_HELP_EX_UPDATE="--update                            Atualizar modelo personalizado"
       MSG_HELP_EX_STATUS="--status                            Verificar instalação"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Criar relatório de erros"
       MSG_HELP_EX_CLEANUP="--cleanup                           Remover variante"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Via pipe com argumento"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Via pipe com argumento"
       MSG_HELP_EXIT_CODES="Códigos de saída:"
       MSG_HELP_EXIT_0="  0  Sucesso"
       MSG_HELP_EXIT_1="  1  Erro geral"
@@ -1899,7 +1915,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Wybierz model:"
       MSG_CHOICE_PROMPT="Wybór [1-4, Enter=1]"
-      MSG_MODEL_3B="Najlepsza ogólna wydajność [Domyślny]"
+      MSG_MODEL_4B="Najlepsza ogólna wydajność [Domyślny]"
       MSG_MODEL_1_5B="Szybki, ograniczona dokładność [Podstawowy]"
       MSG_MODEL_7B="Wymaga wydajnego sprzętu"
       MSG_MODEL_QWEN3="Najlepsza analiza argumentów [Premium]"
@@ -1914,7 +1930,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="Opcja %s wymaga argumentu"
       MSG_UNKNOWN_OPTION="Nieznana opcja: %s"
       MSG_INVALID_MODEL="Nieprawidłowy wariant modelu: %s"
-      MSG_VALID_VARIANTS="Prawidłowe warianty: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Prawidłowe warianty: 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="Ten model wymaga co najmniej %sGB pamięci RAM"
       MSG_RAM_WARN_SYS="Twój system ma %sGB pamięci RAM"
       MSG_CONTINUE_ANYWAY="Kontynuować mimo to?"
@@ -1960,15 +1976,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Instalator przekroczył limit czasu 5 minut"
       MSG_INSTALL_FAILED="Instalacja Ollama nie powiodła się"
       MSG_OLLAMA_INSTALLED="Ollama zainstalowane"
-      MSG_APT_HINT="Zainstaluj: sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Znaleziono Ollama: %s"
       MSG_OLLAMA_BREW_FOUND="Znaleziono Ollama przez Homebrew: %s"
       MSG_PORT_BUSY="Port 11434 zajęty, oczekiwanie na API Ollama..."
       MSG_PORT_BUSY_WARN="Port 11434 zajęty, ale API Ollama nie odpowiada"
       MSG_PORT_CHECK_HINT="Sprawdź: lsof -i :11434"
       MSG_VERSION_WARN="Ollama w wersji %s jest starsza od zalecanej (%s)"
-      MSG_UPDATE_HINT_BREW="Aktualizuj: brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Aktualizuj: sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Aktualizuj: https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Aktualizuj: curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="Pobieranie modelu bazowego..."
       MSG_MODEL_EXISTS="Model już dostępny: %s"
@@ -1995,7 +2010,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Używanie konfiguracji Hablará"
       MSG_USING_DEFAULT_CONFIG="Używanie domyślnej konfiguracji"
       MSG_CUSTOM_CREATING="Tworzenie modelu Hablará %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create przekroczył limit czasu 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create przekroczył limit czasu %ss"
       MSG_CUSTOM_CREATE_FAILED="Nie udało się %s modelu Hablará"
       MSG_CUSTOM_DONE="Model Hablará %s: %s"
       MSG_VERB_CREATED="utworzony"
@@ -2018,13 +2033,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Konfiguracja Ollama:"
       MSG_MODEL_LABEL="  Model:    "
       MSG_BASE_URL_LABEL="  Base URL: "
-      MSG_DOCS="Dokumentacja: https://github.com/fidpa/hablara"
+      MSG_DOCS="Dokumentacja: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="Hablará Ollama Status (macOS)"
       MSG_STATUS_TITLE_LINUX="Hablará Ollama Status (Linux)"
       MSG_STATUS_INSTALLED="Ollama zainstalowane (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Zalecana aktualizacja (minimum v%s): brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Zalecana aktualizacja (minimum v%s): sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Zalecana aktualizacja (minimum v%s): https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Zalecana aktualizacja (minimum v%s): curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Nie znaleziono Ollama"
       MSG_STATUS_SERVER_OK="Serwer działa"
       MSG_STATUS_SERVER_FAIL="Serwer niedostępny"
@@ -2084,6 +2099,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU: AMD (akceleracja ROCm, eksperymentalne)"
       MSG_GPU_STATUS_INTEL="GPU: Intel (akceleracja oneAPI, eksperymentalne)"
       MSG_HOMEBREW_INSTALLED="Ollama zainstalowane przez Homebrew"
+      MSG_BREW_SERVICE_START="Uruchamianie Ollama jako usługi Homebrew (autostart)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup wymaga sesji interaktywnej"
       MSG_CLEANUP_NO_OLLAMA="Nie znaleziono Ollama"
@@ -2091,7 +2107,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Uruchom Ollama i spróbuj ponownie"
       MSG_CLEANUP_INSTALLED="Zainstalowane warianty Hablará:"
       MSG_CLEANUP_PROMPT="Który wariant usunąć? (numer, Enter=anuluj, limit czasu 60s): "
-      MSG_CLEANUP_ENTER_CANCEL="Enter=anuluj"
       MSG_CLEANUP_INVALID="Nieprawidłowy wybór"
       MSG_CLEANUP_DELETED="%s usunięty"
       MSG_CLEANUP_FAILED="Nie udało się usunąć %s: %s"
@@ -2110,11 +2125,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list przekroczył limit czasu (15s) podczas sprawdzania modelu"
       # Linux-specific service management
       MSG_SYSTEMD_START="Uruchamianie usługi Ollama..."
-      MSG_SYSTEMD_ENABLE="Włączanie usługi Ollama..."
-      MSG_SYSTEMD_START_FAIL="Nie udało się uruchomić usługi Ollama"
-      MSG_SERVICE_MANUAL="Uruchom ręcznie: ollama serve"
-      MSG_LINUX_CURL_INSTALL="Instalowanie curl..."
-      MSG_LINUX_INSTALL_HINT="Zainstaluj curl: sudo apt-get install -y curl"
       # Server management (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="Serwer Ollama jest już uruchomiony"
       MSG_PORT_CHECK_HINT_SS="Sprawdź: ss -tlnp | grep 11434"
@@ -2134,7 +2144,7 @@ setup_messages() {
       MSG_HELP_USAGE="Użycie:"
       MSG_HELP_OPTS_LABEL="OPCJE"
       MSG_HELP_OPTIONS="Opcje:"
-      MSG_HELP_OPT_MODEL="  -m, --model WARIANT   Wybierz wariant: 1.5b, 3b, 7b, qwen3-8b (domyślny: 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model WARIANT   Wybierz wariant: 1.5b, qwen3-4b, 7b, qwen3-8b (domyślny: qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Odtwórz niestandardowy model Hablará (aktualizacja Modelfile)"
       MSG_HELP_OPT_STATUS="  --status              Sprawdzenie statusu: 7 punktów kontrolnych instalacji Ollama"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Generuj raport pomocy technicznej (tekst, do skopiowania)"
@@ -2144,12 +2154,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Bez opcji uruchamiany jest interaktywny menu."
       MSG_HELP_VARIANTS="Warianty modeli:"
       MSG_HELP_EXAMPLES="Przykłady:"
-      MSG_HELP_EX_MODEL="--model 3b                          Zainstaluj wariant 3b"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    Zainstaluj wariant qwen3-4b"
       MSG_HELP_EX_UPDATE="--update                            Zaktualizuj niestandardowy model"
       MSG_HELP_EX_STATUS="--status                            Sprawdź instalację"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Utwórz raport błędów"
       MSG_HELP_EX_CLEANUP="--cleanup                           Usuń wariant"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Przez potok z argumentem"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Przez potok z argumentem"
       MSG_HELP_EXIT_CODES="Kody wyjścia:"
       MSG_HELP_EXIT_0="  0  Sukces"
       MSG_HELP_EXIT_1="  1  Błąd ogólny"
@@ -2182,7 +2192,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Välj en modell:"
       MSG_CHOICE_PROMPT="Val [1-4, Enter=1]"
-      MSG_MODEL_3B="Optimal helhetsprestanda [Standard]"
+      MSG_MODEL_4B="Optimal helhetsprestanda [Standard]"
       MSG_MODEL_1_5B="Snabb, begränsad noggrannhet [Grundnivå]"
       MSG_MODEL_7B="Kräver kraftfull hårdvara"
       MSG_MODEL_QWEN3="Bästa argumentationsanalys [Premium]"
@@ -2197,7 +2207,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="Alternativet %s kräver ett argument"
       MSG_UNKNOWN_OPTION="Okänt alternativ: %s"
       MSG_INVALID_MODEL="Ogiltig modellvariant: %s"
-      MSG_VALID_VARIANTS="Giltiga varianter: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Giltiga varianter: 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="Den här modellen rekommenderar minst %sGB RAM"
       MSG_RAM_WARN_SYS="Ditt system har %sGB RAM"
       MSG_CONTINUE_ANYWAY="Fortsätt ändå?"
@@ -2243,15 +2253,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Installerare timeout efter 5 minuter"
       MSG_INSTALL_FAILED="Ollama-installation misslyckades"
       MSG_OLLAMA_INSTALLED="Ollama installerat"
-      MSG_APT_HINT="Installera: sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Ollama hittad: %s"
       MSG_OLLAMA_BREW_FOUND="Ollama via Homebrew hittad: %s"
       MSG_PORT_BUSY="Port 11434 är upptagen, väntar på Ollama API..."
       MSG_PORT_BUSY_WARN="Port 11434 upptagen men Ollama API svarar inte"
       MSG_PORT_CHECK_HINT="Kontrollera: lsof -i :11434"
       MSG_VERSION_WARN="Ollama-version %s är äldre än rekommenderad (%s)"
-      MSG_UPDATE_HINT_BREW="Uppdatera: brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Uppdatera: sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Uppdatera: https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Uppdatera: curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="Laddar ned basmodell..."
       MSG_MODEL_EXISTS="Modell finns redan: %s"
@@ -2278,7 +2287,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Använder Hablará-konfiguration"
       MSG_USING_DEFAULT_CONFIG="Använder standardkonfiguration"
       MSG_CUSTOM_CREATING="Skapar Hablará-modell %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout efter 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout efter %ss"
       MSG_CUSTOM_CREATE_FAILED="Hablará-modell kunde inte %s"
       MSG_CUSTOM_DONE="Hablará-modell %s: %s"
       MSG_VERB_CREATED="skapad"
@@ -2301,13 +2310,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Ollama-konfiguration:"
       MSG_MODEL_LABEL="  Modell:    "
       MSG_BASE_URL_LABEL="  Bas-URL:   "
-      MSG_DOCS="Dokumentation: https://github.com/fidpa/hablara"
+      MSG_DOCS="Dokumentation: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="Hablará Ollama-status (macOS)"
       MSG_STATUS_TITLE_LINUX="Hablará Ollama-status (Linux)"
       MSG_STATUS_INSTALLED="Ollama installerat (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Uppdatering rekommenderas (minimum v%s): brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Uppdatering rekommenderas (minimum v%s): sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Uppdatering rekommenderas (minimum v%s): https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Uppdatering rekommenderas (minimum v%s): curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Ollama hittades inte"
       MSG_STATUS_SERVER_OK="Server körs"
       MSG_STATUS_SERVER_FAIL="Server inte nåbar"
@@ -2367,6 +2376,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU: AMD (ROCm-acceleration, experimentell)"
       MSG_GPU_STATUS_INTEL="GPU: Intel (oneAPI-acceleration, experimentell)"
       MSG_HOMEBREW_INSTALLED="Ollama installerat via Homebrew"
+      MSG_BREW_SERVICE_START="Startar Ollama som Homebrew-tjänst (autostart)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup kräver en interaktiv session"
       MSG_CLEANUP_NO_OLLAMA="Ollama hittades inte"
@@ -2374,7 +2384,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Starta Ollama och försök igen"
       MSG_CLEANUP_INSTALLED="Installerade Hablará-varianter:"
       MSG_CLEANUP_PROMPT="Vilken variant ska tas bort? (nummer, Enter=avbryt, timeout 60s): "
-      MSG_CLEANUP_ENTER_CANCEL="Enter=avbryt"
       MSG_CLEANUP_INVALID="Ogiltigt val"
       MSG_CLEANUP_DELETED="%s borttagen"
       MSG_CLEANUP_FAILED="%s kunde inte tas bort: %s"
@@ -2393,11 +2402,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list timeout (15s) vid modellkontroll"
       # Linux-specific service management
       MSG_SYSTEMD_START="Startar Ollama-tjänst..."
-      MSG_SYSTEMD_ENABLE="Aktiverar Ollama-tjänst..."
-      MSG_SYSTEMD_START_FAIL="Kunde inte starta Ollama-tjänst"
-      MSG_SERVICE_MANUAL="Starta manuellt: ollama serve"
-      MSG_LINUX_CURL_INSTALL="Installerar curl först..."
-      MSG_LINUX_INSTALL_HINT="Installera curl: sudo apt-get install -y curl"
       # Server management (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="Ollama-server körs redan"
       MSG_PORT_CHECK_HINT_SS="Kontrollera: ss -tlnp | grep 11434"
@@ -2417,7 +2421,7 @@ setup_messages() {
       MSG_HELP_USAGE="Användning:"
       MSG_HELP_OPTS_LABEL="ALTERNATIV"
       MSG_HELP_OPTIONS="Alternativ:"
-      MSG_HELP_OPT_MODEL="  -m, --model VARIANT   Välj modellvariant: 1.5b, 3b, 7b, qwen3-8b (standard: 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model VARIANT   Välj modellvariant: 1.5b, qwen3-4b, 7b, qwen3-8b (standard: qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Återskapa Hablará anpassad modell (uppdatera Modelfile)"
       MSG_HELP_OPT_STATUS="  --status              Hälsokontroll: 7-punkts Ollama-installationskontroll"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Generera supportrapport (klartext, kopierbar)"
@@ -2427,12 +2431,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Utan alternativ startar en interaktiv meny."
       MSG_HELP_VARIANTS="Modellvarianter:"
       MSG_HELP_EXAMPLES="Exempel:"
-      MSG_HELP_EX_MODEL="--model 3b                          Installera 3b-variant"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    Installera qwen3-4b-variant"
       MSG_HELP_EX_UPDATE="--update                            Uppdatera anpassad modell"
       MSG_HELP_EX_STATUS="--status                            Kontrollera installation"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Skapa felrapport"
       MSG_HELP_EX_CLEANUP="--cleanup                           Ta bort variant"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Via pipe med argument"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Via pipe med argument"
       MSG_HELP_EXIT_CODES="Utgångskoder:"
       MSG_HELP_EXIT_0="  0  Lyckades"
       MSG_HELP_EXIT_1="  1  Allmänt fel"
@@ -2465,7 +2469,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Vælg en model:"
       MSG_CHOICE_PROMPT="Valg [1-4, Enter=1]"
-      MSG_MODEL_3B="Bedste samlede ydelse [Standard]"
+      MSG_MODEL_4B="Bedste samlede ydelse [Standard]"
       MSG_MODEL_1_5B="Hurtig, begrænset præcision [Grundlæggende]"
       MSG_MODEL_7B="Kræver kraftfuld hardware"
       MSG_MODEL_QWEN3="Bedste argumentationsanalyse [Premium]"
@@ -2480,7 +2484,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="Tilvalget %s kræver et argument"
       MSG_UNKNOWN_OPTION="Ukendt tilvalg: %s"
       MSG_INVALID_MODEL="Ugyldig modelvariant: %s"
-      MSG_VALID_VARIANTS="Gyldige varianter: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Gyldige varianter: 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="Denne model anbefaler mindst %sGB RAM"
       MSG_RAM_WARN_SYS="Dit system har %sGB RAM"
       MSG_CONTINUE_ANYWAY="Fortsæt alligevel?"
@@ -2526,15 +2530,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Installationsprogram timeout efter 5 minutter"
       MSG_INSTALL_FAILED="Ollama-installation mislykkedes"
       MSG_OLLAMA_INSTALLED="Ollama installeret"
-      MSG_APT_HINT="Installer: sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Ollama fundet: %s"
       MSG_OLLAMA_BREW_FOUND="Ollama via Homebrew fundet: %s"
       MSG_PORT_BUSY="Port 11434 er optaget, venter på Ollama API..."
       MSG_PORT_BUSY_WARN="Port 11434 optaget, men Ollama API svarer ikke"
       MSG_PORT_CHECK_HINT="Kontrollér: lsof -i :11434"
       MSG_VERSION_WARN="Ollama-version %s er ældre end anbefalet (%s)"
-      MSG_UPDATE_HINT_BREW="Opdatér: brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Opdatér: sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Opdatér: https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Opdatér: curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="Henter basismodel..."
       MSG_MODEL_EXISTS="Model findes allerede: %s"
@@ -2561,7 +2564,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Bruger Hablará-konfiguration"
       MSG_USING_DEFAULT_CONFIG="Bruger standardkonfiguration"
       MSG_CUSTOM_CREATING="Opretter Hablará-model %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout efter 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create timeout efter %ss"
       MSG_CUSTOM_CREATE_FAILED="Hablará-model kunne ikke %s"
       MSG_CUSTOM_DONE="Hablará-model %s: %s"
       MSG_VERB_CREATED="oprettet"
@@ -2584,13 +2587,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Ollama-konfiguration:"
       MSG_MODEL_LABEL="  Model:     "
       MSG_BASE_URL_LABEL="  Basis-URL: "
-      MSG_DOCS="Dokumentation: https://github.com/fidpa/hablara"
+      MSG_DOCS="Dokumentation: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="Hablará Ollama-status (macOS)"
       MSG_STATUS_TITLE_LINUX="Hablará Ollama-status (Linux)"
       MSG_STATUS_INSTALLED="Ollama installeret (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Opdatering anbefales (minimum v%s): brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Opdatering anbefales (minimum v%s): sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Opdatering anbefales (minimum v%s): https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Opdatering anbefales (minimum v%s): curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Ollama ikke fundet"
       MSG_STATUS_SERVER_OK="Server kører"
       MSG_STATUS_SERVER_FAIL="Server ikke tilgængelig"
@@ -2650,6 +2653,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU: AMD (ROCm-acceleration, eksperimentel)"
       MSG_GPU_STATUS_INTEL="GPU: Intel (oneAPI-acceleration, eksperimentel)"
       MSG_HOMEBREW_INSTALLED="Ollama installeret via Homebrew"
+      MSG_BREW_SERVICE_START="Starter Ollama som Homebrew-tjeneste (autostart)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup kræver en interaktiv session"
       MSG_CLEANUP_NO_OLLAMA="Ollama ikke fundet"
@@ -2657,7 +2661,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Start Ollama og prøv igen"
       MSG_CLEANUP_INSTALLED="Installerede Hablará-varianter:"
       MSG_CLEANUP_PROMPT="Hvilken variant skal fjernes? (nummer, Enter=annullér, timeout 60s): "
-      MSG_CLEANUP_ENTER_CANCEL="Enter=annullér"
       MSG_CLEANUP_INVALID="Ugyldigt valg"
       MSG_CLEANUP_DELETED="%s fjernet"
       MSG_CLEANUP_FAILED="%s kunne ikke fjernes: %s"
@@ -2676,11 +2679,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list timeout (15s) ved modelkontrol"
       # Linux-specific service management
       MSG_SYSTEMD_START="Starter Ollama-tjeneste..."
-      MSG_SYSTEMD_ENABLE="Aktiverer Ollama-tjeneste..."
-      MSG_SYSTEMD_START_FAIL="Kunne ikke starte Ollama-tjeneste"
-      MSG_SERVICE_MANUAL="Start manuelt: ollama serve"
-      MSG_LINUX_CURL_INSTALL="Installerer curl først..."
-      MSG_LINUX_INSTALL_HINT="Installer curl: sudo apt-get install -y curl"
       # Server management (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="Ollama-server kører allerede"
       MSG_PORT_CHECK_HINT_SS="Kontrollér: ss -tlnp | grep 11434"
@@ -2700,7 +2698,7 @@ setup_messages() {
       MSG_HELP_USAGE="Brug:"
       MSG_HELP_OPTS_LABEL="TILVALG"
       MSG_HELP_OPTIONS="Tilvalg:"
-      MSG_HELP_OPT_MODEL="  -m, --model VARIANT   Vælg modelvariant: 1.5b, 3b, 7b, qwen3-8b (standard: 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model VARIANT   Vælg modelvariant: 1.5b, qwen3-4b, 7b, qwen3-8b (standard: qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Gengenerér Hablará tilpasset model (opdatér Modelfile)"
       MSG_HELP_OPT_STATUS="  --status              Sundhedstjek: 7-punkts Ollama-installationskontrol"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Generér supportrapport (klartekst, kopierbar)"
@@ -2710,12 +2708,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Uden tilvalg startes en interaktiv menu."
       MSG_HELP_VARIANTS="Modelvarianter:"
       MSG_HELP_EXAMPLES="Eksempler:"
-      MSG_HELP_EX_MODEL="--model 3b                          Installer 3b-variant"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    Installer qwen3-4b-variant"
       MSG_HELP_EX_UPDATE="--update                            Opdatér tilpasset model"
       MSG_HELP_EX_STATUS="--status                            Kontrollér installation"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Opret fejlrapport"
       MSG_HELP_EX_CLEANUP="--cleanup                           Fjern variant"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Via pipe med argument"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Via pipe med argument"
       MSG_HELP_EXIT_CODES="Afslutningskoder:"
       MSG_HELP_EXIT_0="  0  Lykkedes"
       MSG_HELP_EXIT_1="  1  Generel fejl"
@@ -2748,7 +2746,7 @@ setup_messages() {
       # Model Menu
       MSG_CHOOSE_MODEL="Wähle ein Modell:"
       MSG_CHOICE_PROMPT="Auswahl [1-4, Enter=1]"
-      MSG_MODEL_3B="Optimale Gesamtleistung [Standard]"
+      MSG_MODEL_4B="Optimale Gesamtleistung [Standard]"
       MSG_MODEL_1_5B="Schnell, eingeschränkte Genauigkeit [Einstieg]"
       MSG_MODEL_7B="Erfordert sehr leistungsfähige Hardware"
       MSG_MODEL_QWEN3="Beste Argumentationsanalyse [Premium]"
@@ -2763,7 +2761,7 @@ setup_messages() {
       MSG_OPT_NEEDS_ARG="Option %s benötigt ein Argument"
       MSG_UNKNOWN_OPTION="Unbekannte Option: %s"
       MSG_INVALID_MODEL="Ungültige Modell-Variante: %s"
-      MSG_VALID_VARIANTS="Gültige Varianten: qwen2.5-1.5b, qwen2.5-3b, qwen2.5-7b, qwen3-8b"
+      MSG_VALID_VARIANTS="Gültige Varianten: 1.5b, qwen3-4b, 7b, qwen3-8b"
       MSG_RAM_WARN_MODEL="Dieses Modell empfiehlt mindestens %sGB RAM"
       MSG_RAM_WARN_SYS="Dein System hat %sGB RAM"
       MSG_CONTINUE_ANYWAY="Trotzdem fortfahren?"
@@ -2809,15 +2807,14 @@ setup_messages() {
       MSG_INSTALLER_TIMEOUT="Installer-Timeout nach 5 Minuten"
       MSG_INSTALL_FAILED="Ollama Installation fehlgeschlagen"
       MSG_OLLAMA_INSTALLED="Ollama installiert"
-      MSG_APT_HINT="Installieren: sudo apt-get install -y curl"
       MSG_OLLAMA_FOUND="Ollama gefunden: %s"
       MSG_OLLAMA_BREW_FOUND="Ollama via Homebrew gefunden: %s"
       MSG_PORT_BUSY="Port 11434 ist belegt, warte auf Ollama API..."
       MSG_PORT_BUSY_WARN="Port 11434 belegt, aber Ollama API antwortet nicht"
       MSG_PORT_CHECK_HINT="Prüfe: lsof -i :11434"
       MSG_VERSION_WARN="Ollama Version %s ist älter als empfohlen (%s)"
-      MSG_UPDATE_HINT_BREW="Update: brew upgrade ollama"
-      MSG_UPDATE_HINT_APT="Update: sudo apt-get install ollama"
+      MSG_UPDATE_HINT_MAC="Update: https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_UPDATE_HINT_LINUX="Update: curl -fsSL https://ollama.com/install.sh | sh"
       # Model Download
       MSG_DOWNLOADING_BASE="Lade Basis-Modell herunter..."
       MSG_MODEL_EXISTS="Modell bereits vorhanden: %s"
@@ -2844,7 +2841,7 @@ setup_messages() {
       MSG_USING_HABLARA_CONFIG="Verwende Hablará-Konfiguration"
       MSG_USING_DEFAULT_CONFIG="Verwende Standard-Konfiguration"
       MSG_CUSTOM_CREATING="Erstelle Hablará-Modell %s..."
-      MSG_CUSTOM_CREATE_TIMEOUT="ollama create Timeout nach 120s"
+      MSG_CUSTOM_CREATE_TIMEOUT="ollama create Timeout nach %ss"
       MSG_CUSTOM_CREATE_FAILED="Hablará-Modell konnte nicht %s werden"
       MSG_CUSTOM_DONE="Hablará-Modell %s: %s"
       MSG_VERB_CREATED="erstellt"
@@ -2867,13 +2864,13 @@ setup_messages() {
       MSG_OLLAMA_CONFIG="Ollama-Konfiguration:"
       MSG_MODEL_LABEL="  Modell:   "
       MSG_BASE_URL_LABEL="  Base URL: "
-      MSG_DOCS="Dokumentation: https://github.com/fidpa/hablara"
+      MSG_DOCS="Dokumentation: https://github.com/fidpa/hablara-releases/blob/main/docs/reference/OLLAMA_SETUP.md"
       # Status
       MSG_STATUS_TITLE_MAC="Hablará Ollama Status (macOS)"
       MSG_STATUS_TITLE_LINUX="Hablará Ollama Status (Linux)"
       MSG_STATUS_INSTALLED="Ollama installiert (v%s)"
-      MSG_STATUS_UPDATE_REC_BREW="  ↳ Update empfohlen (mindestens v%s): brew upgrade ollama"
-      MSG_STATUS_UPDATE_REC_APT="  ↳ Update empfohlen (mindestens v%s): sudo apt-get install ollama"
+      MSG_STATUS_UPDATE_REC_MAC="  ↳ Update empfohlen (mindestens v%s): https://ollama.com/download (Homebrew: brew upgrade ollama)"
+      MSG_STATUS_UPDATE_REC_LINUX="  ↳ Update empfohlen (mindestens v%s): curl -fsSL https://ollama.com/install.sh | sh"
       MSG_STATUS_NOT_FOUND="Ollama nicht gefunden"
       MSG_STATUS_SERVER_OK="Server läuft"
       MSG_STATUS_SERVER_FAIL="Server nicht erreichbar"
@@ -2933,6 +2930,7 @@ setup_messages() {
       MSG_GPU_STATUS_AMD="GPU: AMD (ROCm-Beschleunigung, experimentell)"
       MSG_GPU_STATUS_INTEL="GPU: Intel (oneAPI-Beschleunigung, experimentell)"
       MSG_HOMEBREW_INSTALLED="Ollama via Homebrew installiert"
+      MSG_BREW_SERVICE_START="Starte Ollama als Homebrew-Dienst (Autostart)..."
       # Cleanup
       MSG_CLEANUP_NEEDS_TTY="--cleanup erfordert eine interaktive Sitzung"
       MSG_CLEANUP_NO_OLLAMA="Ollama nicht gefunden"
@@ -2940,7 +2938,6 @@ setup_messages() {
       MSG_CLEANUP_START_HINT="Starte Ollama und versuche es erneut"
       MSG_CLEANUP_INSTALLED="Installierte Hablará-Varianten:"
       MSG_CLEANUP_PROMPT="Welche Variante löschen? (Nummer, Enter=abbrechen, Timeout 60s): "
-      MSG_CLEANUP_ENTER_CANCEL="Enter=abbrechen"
       MSG_CLEANUP_INVALID="Ungültige Auswahl"
       MSG_CLEANUP_DELETED="%s gelöscht"
       MSG_CLEANUP_FAILED="%s konnte nicht gelöscht werden: %s"
@@ -2959,11 +2956,6 @@ setup_messages() {
       MSG_OLLAMA_LIST_TIMEOUT="ollama list Timeout (15s) bei Modell-Prüfung"
       # Linux-specific service management
       MSG_SYSTEMD_START="Starte Ollama-Dienst..."
-      MSG_SYSTEMD_ENABLE="Aktiviere Ollama-Dienst..."
-      MSG_SYSTEMD_START_FAIL="Konnte Ollama-Dienst nicht starten"
-      MSG_SERVICE_MANUAL="Manuell starten: ollama serve"
-      MSG_LINUX_CURL_INSTALL="Installiere curl..."
-      MSG_LINUX_INSTALL_HINT="curl installieren: sudo apt-get install -y curl"
       # Server-Verwaltung (start_ollama_server + show_summary)
       MSG_SERVER_ALREADY="Ollama Server läuft bereits"
       MSG_PORT_CHECK_HINT_SS="Prüfe: ss -tlnp | grep 11434"
@@ -2983,7 +2975,7 @@ setup_messages() {
       MSG_HELP_USAGE="Verwendung:"
       MSG_HELP_OPTS_LABEL="OPTIONEN"
       MSG_HELP_OPTIONS="Optionen:"
-      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Modell-Variante wählen: 1.5b, 3b, 7b, qwen3-8b (Standard: 3b)"
+      MSG_HELP_OPT_MODEL="  -m, --model VARIANTE  Modell-Variante wählen: 1.5b, qwen3-4b, 7b, qwen3-8b (Standard: qwen3-4b)"
       MSG_HELP_OPT_UPDATE="  --update              Hablará-Custom-Modell neu erstellen (Modelfile aktualisieren)"
       MSG_HELP_OPT_STATUS="  --status              Health-Check: 7-Punkte-Prüfung der Ollama-Installation"
       MSG_HELP_OPT_DIAGNOSE="  --diagnose            Support-Report generieren (Plain-Text, kopierfähig)"
@@ -2993,12 +2985,12 @@ setup_messages() {
       MSG_HELP_NO_OPTS="Ohne Optionen startet ein interaktives Menü."
       MSG_HELP_VARIANTS="Modell-Varianten:"
       MSG_HELP_EXAMPLES="Beispiele:"
-      MSG_HELP_EX_MODEL="--model 3b                          3b-Variante installieren"
+      MSG_HELP_EX_MODEL="--model qwen3-4b                    qwen3-4b-Variante installieren"
       MSG_HELP_EX_UPDATE="--update                            Custom-Modell aktualisieren"
       MSG_HELP_EX_STATUS="--status                            Installation prüfen"
       MSG_HELP_EX_DIAGNOSE="--diagnose                          Report für Bug-Ticket erstellen"
       MSG_HELP_EX_CLEANUP="--cleanup                           Variante entfernen"
-      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m 3b      Via Pipe mit Argument"
+      MSG_HELP_EX_PIPE="  curl -fsSL URL | bash -s -- -m qwen3-4b  Via Pipe mit Argument"
       MSG_HELP_EXIT_CODES="Exit Codes:"
       MSG_HELP_EXIT_0="  0  Erfolg"
       MSG_HELP_EXIT_1="  1  Allgemeiner Fehler"
@@ -3132,7 +3124,7 @@ check_ollama_version() {
   if [[ "$current_version" != "unknown" ]]; then
     if ! version_gte "$current_version" "$MIN_OLLAMA_VERSION"; then
       log_warning "$(msg "$MSG_VERSION_WARN" "$current_version" "$MIN_OLLAMA_VERSION")"
-      log_info "${MSG_UPDATE_HINT_BREW}"
+      log_info "${MSG_UPDATE_HINT_MAC}"
       return 1
     fi
   fi
@@ -3178,9 +3170,20 @@ _gpu_bandwidth_lookup() {
 # Detect memory bandwidth in GB/s (macOS: Apple Silicon lookup)
 # PLATFORM-SPECIFIC: macOS uses sysctl + chip lookup table
 detect_memory_bandwidth_gbps() {
-  local chip
+  local chip perf_cores
   chip=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)
+  # Performance-Kerne unterscheiden die Varianten von M3 Max und M4 Max
+  # (16-Core-CPU: 12, 14-Core-CPU: 10). Leer oder unbekannt: kleinere Variante.
+  perf_cores=$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || true)
 
+  # Werte identisch zu apple_silicon_bandwidth_gbps() in
+  # src-tauri/src/commands/system_bandwidth.rs, dort mit Einzelquellen.
+  # Quellen: Apple-Tech-Specs (https://support.apple.com/en-us/117735, 117737,
+  # 121554, 122211, 125405, 126318), https://www.apple.com/mac-studio/specs/
+  # und Apple Newsroom (M1 Pro/Max/Ultra, M2-Familie, M4).
+  # Reihenfolge je Familie: Ultra vor Max vor Pro vor Basis (Teilstring-Match).
+  # M5 Max: beide Varianten haben 12 P-Kerne, nur die GPU trennt 460 von 614,
+  # daher der kleinere Wert. Einen M4 Ultra hat Apple nicht ausgeliefert.
   case "$chip" in
     *"M1 Ultra"*)       echo "800" ;;
     *"M1 Max"*)         echo "400" ;;
@@ -3190,15 +3193,17 @@ detect_memory_bandwidth_gbps() {
     *"M2 Max"*)         echo "400" ;;
     *"M2 Pro"*)         echo "200" ;;
     *"M2"*)             echo "100" ;;
-    *"M3 Ultra"*)       echo "800" ;;
-    *"M3 Max"*)         echo "400" ;;
+    *"M3 Ultra"*)       echo "819" ;;
+    *"M3 Max"*)
+      if [[ "$perf_cores" == "12" ]]; then echo "400"; else echo "300"; fi ;;
     *"M3 Pro"*)         echo "150" ;;
     *"M3"*)             echo "100" ;;
-    *"M4 Ultra"*)       echo "820" ;;
-    *"M4 Max"*)         echo "410" ;;
+    *"M4 Max"*)
+      if [[ "$perf_cores" == "12" ]]; then echo "546"; else echo "410"; fi ;;
     *"M4 Pro"*)         echo "273" ;;
     *"M4"*)             echo "120" ;;
-    *"M5 Max"*)         echo "614" ;;
+    *"M5 Ultra"*)       echo "1200" ;;
+    *"M5 Max"*)         echo "460" ;;
     *"M5 Pro"*)         echo "307" ;;
     *"M5"*)             echo "153" ;;
     *)                  echo "0" ;;
@@ -3214,7 +3219,7 @@ recommend_model_for_bandwidth() {
   elif [[ "$bw" -ge 300 ]]; then
     echo "7b"
   elif [[ "$bw" -ge 150 ]]; then
-    echo "3b"
+    echo "qwen3-4b"
   elif [[ "$bw" -ge 50 ]]; then
     echo "1.5b"
   else
@@ -3231,6 +3236,7 @@ estimate_toks_per_sec() {
   local size_gb_x10 factor
   case "$model" in
     1.5b)       size_gb_x10=10; factor=6 ;;
+    qwen3-4b)   size_gb_x10=25; factor=6 ;;
     3b)         size_gb_x10=19; factor=7 ;;
     7b)         size_gb_x10=47; factor=8 ;;
     qwen3-8b)   size_gb_x10=52; factor=8 ;;
@@ -3281,14 +3287,14 @@ show_hardware_recommendation() {
   echo "" >&2
   echo -e "${COLOR_CYAN}${MSG_HW_RECOMMENDATION}${COLOR_RESET}" >&2
 
-  local toks_15b toks_3b toks_7b toks_q3
+  local toks_15b toks_4b toks_7b toks_q3
   toks_15b=$(estimate_toks_per_sec "$bw" "1.5b")
-  toks_3b=$(estimate_toks_per_sec "$bw" "3b")
+  toks_4b=$(estimate_toks_per_sec "$bw" "qwen3-4b")
   toks_7b=$(estimate_toks_per_sec "$bw" "7b")
   toks_q3=$(estimate_toks_per_sec "$bw" "qwen3-8b")
 
   _model_rating_line "qwen2.5:1.5b" "$toks_15b" "$( [[ "$RECOMMENDED_MODEL" == "1.5b" ]] && echo true || echo false )"
-  _model_rating_line "qwen2.5:3b" "$toks_3b" "$( [[ "$RECOMMENDED_MODEL" == "3b" ]] && echo true || echo false )"
+  _model_rating_line "qwen3:4b" "$toks_4b" "$( [[ "$RECOMMENDED_MODEL" == "qwen3-4b" ]] && echo true || echo false )"
   _model_rating_line "qwen2.5:7b" "$toks_7b" "$( [[ "$RECOMMENDED_MODEL" == "7b" ]] && echo true || echo false )"
   _model_rating_line "qwen3:8b" "$toks_q3" "$( [[ "$RECOMMENDED_MODEL" == "qwen3-8b" ]] && echo true || echo false )"
   echo "" >&2
@@ -3300,15 +3306,16 @@ show_hardware_recommendation() {
     log_info "${MSG_HW_CLOUD_HINT}" >&2
     echo "" >&2
 
-    if [[ -r /dev/tty ]]; then
-      echo -n "${MSG_HW_PROCEED_LOCAL} " >&2
+    if has_tty; then
+      printf '%s' "${MSG_HW_PROCEED_LOCAL} " >&2
       local confirm; read -t 30 -r confirm </dev/tty || confirm=""
       if [[ ! "$confirm" =~ ${MSG_CONFIRM_YES} ]]; then
         log_info "${MSG_ABORTED}"
         exit 0
       fi
     fi
-    RECOMMENDED_MODEL="$DEFAULT_MODEL"
+    # Wie die App: unter 50 GB/s das kleinste Modell, zusätzlich der Cloud-Hinweis oben
+    RECOMMENDED_MODEL="1.5b"
   fi
 
 }
@@ -3581,6 +3588,8 @@ _pull_with_heartbeat() {
 run_status_check() {
   STATUS_CHECK_MODE=true
   local errors=0
+  # Ollama.app ohne CLI-Symlink oder Homebrew ohne PATH-Eintrag: sonst "nicht gefunden" bei laufendem Server
+  detect_ollama_installation >/dev/null 2>&1 || true
 
   # Lokale Status-Hilfsfunktionen (stdout-only, kein stderr-Interleaving)
   status_ok()   { echo -e "  ${COLOR_GREEN}✓${COLOR_RESET} $1"; }
@@ -3598,7 +3607,7 @@ run_status_check() {
     current_version=$(get_ollama_version_string)
     status_ok "$(msg "$MSG_STATUS_INSTALLED" "$current_version")"
     if [[ "$current_version" != "unknown" ]] && ! version_gte "$current_version" "$MIN_OLLAMA_VERSION"; then
-      echo -e "    ${COLOR_YELLOW}$(msg "$MSG_STATUS_UPDATE_REC_BREW" "$MIN_OLLAMA_VERSION")${COLOR_RESET}"
+      echo -e "    ${COLOR_YELLOW}$(msg "$MSG_STATUS_UPDATE_REC_MAC" "$MIN_OLLAMA_VERSION")${COLOR_RESET}"
     fi
   else
     status_fail "${MSG_STATUS_NOT_FOUND}"
@@ -3625,9 +3634,11 @@ run_status_check() {
   esac
 
   # 4. Base models present? (scan all variants, largest first)
+  # `ollama list` braucht den Server; ohne ihn wartet die CLI ~5 s je Aufruf, 8 Aufrufe = 40 s für leere Listen
   local base_models_found=()
   local variant
-  for variant in qwen3-8b 7b 3b 1.5b; do
+  for variant in qwen3-8b 7b qwen3-4b 3b 1.5b; do
+    [[ "$server_reachable" == "true" ]] || break
     local config_line
     config_line=$(get_model_config "$variant") || continue
     local model_name="${config_line%%|*}"
@@ -3650,12 +3661,15 @@ run_status_check() {
 
   # 5. Custom models present? (scan all variants, largest first)
   local custom_models_found=()
-  for variant in qwen3-8b 7b 3b 1.5b; do
+  for variant in qwen3-8b 7b qwen3-4b 3b 1.5b; do
+    [[ "$server_reachable" == "true" ]] || break
     local config_line
     config_line=$(get_model_config "$variant") || continue
     local model_name="${config_line%%|*}"
-    if ollama_model_exists "${model_name}-custom"; then
-      custom_models_found+=("${model_name}-custom")
+    local custom_name
+    custom_name=$(custom_model_name_from_config "$config_line")
+    if ollama_model_exists "$custom_name"; then
+      custom_models_found+=("$custom_name")
     fi
   done
 
@@ -3678,15 +3692,16 @@ run_status_check() {
   fi
 
   # 6. Model inference works? (use smallest model for fastest check)
-  # Explicit priority: 3b > 7b > qwen3-8b (smallest = fastest)
-  local model_priority=(1.5b 3b 7b qwen3-8b)
+  # Explicit priority: 1.5b > qwen3-4b > 3b > 7b > qwen3-8b (smallest = fastest)
+  local model_priority=(1.5b qwen3-4b 3b 7b qwen3-8b)
   local test_model=""
 
   # Try custom models first
   for prio in "${model_priority[@]}"; do
     local config_line
     config_line=$(get_model_config "$prio") || continue
-    local candidate="${config_line%%|*}-custom"
+    local candidate
+    candidate=$(custom_model_name_from_config "$config_line")
     # ${arr[@]+"${arr[@]}"}: Ein leeres Array bricht unter Bash 3.2 (macOS /bin/bash) mit set -u sonst ab
     for found in ${custom_models_found[@]+"${custom_models_found[@]}"}; do
       if [[ "$found" == "$candidate" ]]; then
@@ -3713,7 +3728,7 @@ run_status_check() {
   if [[ "$server_reachable" != "true" ]]; then
     status_warn "${MSG_STATUS_INFERENCE_SKIP}"
   elif [[ -n "$test_model" ]]; then
-    if _check_model_responds "$test_model" 15; then
+    if _check_model_responds "$test_model" 30; then
       status_ok "${MSG_STATUS_MODEL_OK}"
     else
       status_fail "${MSG_STATUS_MODEL_FAIL}"
@@ -3724,7 +3739,7 @@ run_status_check() {
     errors=$((errors + 1))
   fi
 
-  # 7. Storage usage (only Hablará-relevant qwen2.5 models, parsed from ollama list)
+  # 7. Storage usage (only Hablará models, parsed from ollama list)
   local all_models=(${base_models_found[@]+"${base_models_found[@]}"} ${custom_models_found[@]+"${custom_models_found[@]}"})
   if [[ ${#all_models[@]} -gt 0 ]] && command_exists ollama; then
     local total_gb=0 ollama_list
@@ -3765,6 +3780,7 @@ run_status_check() {
 run_diagnose_report() {
   DIAGNOSE_MODE=true
   STATUS_CHECK_MODE=true  # Suppress EXIT trap error message
+  detect_ollama_installation >/dev/null 2>&1 || true
 
   # --- System ---
   local os_version arch ram_total_gb ram_free_gb free_disk_gb shell_version
@@ -3833,7 +3849,7 @@ run_diagnose_report() {
   fi
   if [[ -n "$ollama_list" ]]; then
     local variant
-    for variant in qwen3-8b 7b 3b 1.5b; do
+    for variant in qwen3-8b 7b qwen3-4b 3b 1.5b; do
       local config_line
       config_line=$(get_model_config "$variant") || continue
       local model_name="${config_line%%|*}"
@@ -3856,14 +3872,15 @@ run_diagnose_report() {
       fi
 
       # Check custom model
-      local custom_name="${model_name}-custom"
+      local custom_name
+      custom_name=$(custom_model_name_from_config "$config_line")
       if ollama_model_exists "$custom_name"; then
         local size_str
         size_str=$(echo "$ollama_list" | awk -v m="$custom_name" '$1 == m {print $3, $4}')
         local size_display="${size_str:-${MSG_DIAGNOSE_UNKNOWN}}"
         # Check inference for custom model
         local responds_label=""
-        if [[ "$server_status" == "${MSG_DIAGNOSE_RUNNING}" ]] && _check_model_responds "$custom_name" 15; then
+        if [[ "$server_status" == "${MSG_DIAGNOSE_RUNNING}" ]] && _check_model_responds "$custom_name" 30; then
           responds_label=" ${MSG_DIAGNOSE_RESPONDS}"
         fi
         local pad=$(( 20 - ${#custom_name} )); [[ $pad -lt 1 ]] && pad=1
@@ -3954,8 +3971,9 @@ EOF
 run_cleanup() {
   CLEANUP_MODE=true
   STATUS_CHECK_MODE=true  # Suppress EXIT trap error message
+  detect_ollama_installation || true
 
-  if [[ ! -r /dev/tty ]]; then
+  if ! has_tty; then
     log_error "${MSG_CLEANUP_NEEDS_TTY}"
     exit 1
   fi
@@ -3974,11 +3992,12 @@ run_cleanup() {
   # Discover installed Hablará variants
   local variants=() variant_labels=()
   local variant
-  for variant in 1.5b 3b 7b qwen3-8b; do
+  for variant in 1.5b qwen3-4b 3b 7b qwen3-8b; do
     local config_line
     config_line=$(get_model_config "$variant") || continue
     local model_name="${config_line%%|*}"
-    local custom_name="${model_name}-custom"
+    local custom_name
+    custom_name=$(custom_model_name_from_config "$config_line")
     local has_base=false has_custom=false
 
     ollama_model_exists "$model_name" && has_base=true
@@ -4011,7 +4030,7 @@ run_cleanup() {
     echo "  $((i + 1))) ${variant_labels[$i]}"
   done
   echo ""
-  echo -n "${MSG_CLEANUP_PROMPT}"
+  printf '%s' "${MSG_CLEANUP_PROMPT}"
 
   local choice
   read -t 60 -r choice </dev/tty || choice=""
@@ -4053,11 +4072,11 @@ run_cleanup() {
 
   # Check if any Hablará models remain
   local remaining=false
-  for variant in 1.5b 3b 7b qwen3-8b; do
+  for variant in 1.5b qwen3-4b 3b 7b qwen3-8b; do
     local config_line
     config_line=$(get_model_config "$variant") || continue
     local model_name="${config_line%%|*}"
-    if ollama_model_exists "$model_name" || ollama_model_exists "${model_name}-custom"; then
+    if ollama_model_exists "$model_name" || ollama_model_exists "$(custom_model_name_from_config "$config_line")"; then
       remaining=true
       break
     fi
@@ -4098,7 +4117,7 @@ show_help() {
   echo ""
   echo -e "${COLOR_GREEN}${MSG_HELP_VARIANTS}${COLOR_RESET}"
   echo "  qwen2.5-1.5b  ~1 GB     ${MSG_MODEL_1_5B}"
-  echo "  qwen2.5-3b    ~2 GB     ${MSG_MODEL_3B}"
+  echo "  qwen3-4b      ~2.5 GB   ${MSG_MODEL_4B}"
   echo "  qwen2.5-7b    ~4.7 GB   ${MSG_MODEL_7B}"
   echo "  qwen3-8b      ~5.2 GB   ${MSG_MODEL_QWEN3}"
   echo ""
@@ -4130,7 +4149,7 @@ show_model_menu() {
   local s1="" s2="" s3="" s4=""
   case "$rec" in
     1.5b)      s1=" ★" ;;
-    3b)        s2=" ★" ;;
+    qwen3-4b)  s2=" ★" ;;
     7b)        s3=" ★" ;;
     qwen3-8b)  s4=" ★" ;;
   esac
@@ -4139,7 +4158,7 @@ show_model_menu() {
   local default_num="2"
   case "$rec" in
     1.5b)      default_num="1" ;;
-    3b)        default_num="2" ;;
+    qwen3-4b)  default_num="2" ;;
     7b)        default_num="3" ;;
     qwen3-8b)  default_num="4" ;;
   esac
@@ -4148,7 +4167,7 @@ show_model_menu() {
   echo -e "${COLOR_CYAN}${MSG_CHOOSE_MODEL}${COLOR_RESET}" >&2
   echo "" >&2
   echo "  1) qwen2.5-1.5b - ${MSG_MODEL_1_5B}${s1}" >&2
-  echo "  2) qwen2.5-3b   - ${MSG_MODEL_3B}${s2}" >&2
+  echo "  2) qwen3-4b     - ${MSG_MODEL_4B}${s2}" >&2
   echo "  3) qwen2.5-7b   - ${MSG_MODEL_7B}${s3}" >&2
   echo "  4) qwen3-8b     - ${MSG_MODEL_QWEN3}${s4}" >&2
   echo "" >&2
@@ -4159,12 +4178,12 @@ show_model_menu() {
   else
     prompt="${MSG_CHOICE_PROMPT}"
   fi
-  echo -n "${prompt}: " >&2
+  printf '%s' "${prompt}: " >&2
 
   local choice
   read -t 60 -r choice </dev/tty || choice=""
   case "$choice" in
-    1) echo "1.5b" ;; 2) echo "3b" ;; 3) echo "7b" ;; 4) echo "qwen3-8b" ;; *) echo "$rec" ;;
+    1) echo "1.5b" ;; 2) echo "qwen3-4b" ;; 3) echo "7b" ;; 4) echo "qwen3-8b" ;; *) echo "$rec" ;;
   esac
 }
 
@@ -4174,8 +4193,8 @@ parse_model_config() {
   local config
   config=$(get_model_config "$variant") || return 1
 
-  IFS='|' read -r MODEL_NAME MODEL_SIZE REQUIRED_DISK_SPACE_GB RAM_WARNING <<< "$config"
-  CUSTOM_MODEL_NAME="${MODEL_NAME}-custom"
+  IFS='|' read -r MODEL_NAME MODEL_SIZE REQUIRED_DISK_SPACE_GB RAM_WARNING _CUSTOM_NAME <<< "$config"
+  CUSTOM_MODEL_NAME=$(custom_model_name_from_config "$config")
   return 0
 }
 
@@ -4188,7 +4207,7 @@ show_main_menu() {
   echo "  3) ${MSG_ACTION_DIAGNOSE}" >&2
   echo "  4) ${MSG_ACTION_CLEANUP}" >&2
   echo "" >&2
-  echo -n "${MSG_ACTION_PROMPT}: " >&2
+  printf '%s' "${MSG_ACTION_PROMPT}: " >&2
 
   local choice
   read -t 60 -r choice </dev/tty || choice=""
@@ -4213,14 +4232,17 @@ select_model() {
       --status) local _rc=0; run_status_check || _rc=$?; exit $_rc ;;
       --diagnose) local _rc=0; run_diagnose_report || _rc=$?; exit $_rc ;;
       --cleanup) local _rc=0; run_cleanup || _rc=$?; exit $_rc ;;
-      --lang) shift 2 ;;  # Already processed by parse_lang_flag
+      --lang)
+        # Already processed by parse_lang_flag; without value `shift 2` would abort silently under set -e
+        [[ -z "${2:-}" ]] && { log_error "$(msg "$MSG_OPT_NEEDS_ARG" "$1")"; exit 1; }
+        shift 2 ;;
       -h|--help) show_help; exit 0 ;;
       *) log_error "$(msg "$MSG_UNKNOWN_OPTION" "$1")"; exit 1 ;;
     esac
   done
 
   # Interactive main menu (only when no explicit flags and TTY available)
-  if [[ "$has_explicit_flags" == "false" && -z "$requested_model" && -r /dev/tty ]]; then
+  if [[ "$has_explicit_flags" == "false" && -z "$requested_model" ]] && has_tty; then
     local action
     action=$(show_main_menu) || action="setup"
     if [[ "$action" == "status" ]]; then
@@ -4235,15 +4257,15 @@ select_model() {
   # Hardware-aware recommendation (before model menu)
   local detected_bw=0
   detected_bw=$(detect_memory_bandwidth_gbps) || detected_bw=0
-  if [[ "$detected_bw" -gt 0 && -z "$requested_model" && -r /dev/tty ]]; then
+  if [[ "$detected_bw" -gt 0 && -z "$requested_model" ]] && has_tty; then
     show_hardware_recommendation "$detected_bw"
-  elif [[ "$detected_bw" -eq 0 && -z "$requested_model" && -r /dev/tty ]]; then
+  elif [[ "$detected_bw" -eq 0 && -z "$requested_model" ]] && has_tty; then
     log_info "${MSG_HW_UNKNOWN_CHIP}" >&2
   fi
 
   if [[ -z "$requested_model" ]]; then
     # /dev/tty allows interactive input even when piped via curl | bash
-    if [[ -r /dev/tty ]]; then
+    if has_tty; then
       requested_model=$(show_model_menu) || requested_model="$DEFAULT_MODEL"
     else
       requested_model="$DEFAULT_MODEL"
@@ -4267,8 +4289,8 @@ select_model() {
       log_warning "$(msg "$MSG_RAM_WARN_SYS" "$system_ram")"
       echo ""
 
-      if [[ -r /dev/tty ]]; then
-        echo -n "${MSG_CONTINUE_ANYWAY} ${MSG_CONFIRM_PROMPT}: "
+      if has_tty; then
+        printf '%s' "${MSG_CONTINUE_ANYWAY} ${MSG_CONFIRM_PROMPT}: "
         local confirm; read -t 30 -r confirm </dev/tty || confirm=""
         [[ ! "$confirm" =~ ${MSG_CONFIRM_YES} ]] && { log_info "${MSG_ABORTED}"; exit 0; }
       else
@@ -4383,6 +4405,21 @@ start_ollama_server() {
     spinner_stop
     curl -sf --max-time 10 "${OLLAMA_API_URL}/api/version" &>/dev/null && return 0
     # Ollama.app start didn't produce API - fall through to nohup
+  fi
+
+  # Homebrew-Formel: als launchd-Dienst starten, sonst läuft der Server nur bis zum nächsten Neustart
+  if command_exists brew; then
+    local brew_prefix
+    brew_prefix=$(brew --prefix 2>/dev/null || echo "")
+    if [[ -n "$brew_prefix" && "$(command -v ollama 2>/dev/null || true)" == "${brew_prefix}/bin/ollama" ]]; then
+      log_info "${MSG_BREW_SERVICE_START}"
+      run_with_timeout 60 brew services start ollama >/dev/null 2>&1 || true
+      spinner_start "${MSG_WAIT_SERVER}"
+      sleep 3
+      spinner_stop
+      curl -sf --max-time 10 "${OLLAMA_API_URL}/api/version" &>/dev/null && return 0
+      # brew services didn't produce API - fall through to nohup
+    fi
   fi
 
   # Fallback: nohup
@@ -4580,7 +4617,7 @@ create_custom_model() (
     if [[ "$FORCE_UPDATE" == "true" ]]; then
       log_info "${MSG_UPDATING_CUSTOM}"
       action_verb="${MSG_VERB_UPDATED}"
-    elif exec 3<>/dev/tty; then
+    elif has_tty && exec 3<>/dev/tty; then
       # Interaktiv: Menü über FD3 (TTY), damit stderr-Redirect den Prompt nicht versteckt
       printf "\n" >&3
       printf "${MSG_CUSTOM_EXISTS}\n" "${CUSTOM_MODEL_NAME}" >&3
@@ -4605,12 +4642,13 @@ create_custom_model() (
     fi
   fi
 
-  # Dynamic modelfile path based on selected model variant (e.g. qwen2.5:7b → qwen2.5-7b-custom.modelfile)
+  # Modelfile-Pfad aus dem Custom-Namen (qwen2.5:7b-custom → qwen2.5-7b-custom.modelfile,
+  # qwen3:4b-custom → qwen3-4b-custom.modelfile; der Basisname trägt beim 4B einen datierten Tag)
   local script_dir="" external_modelfile=""
   if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || script_dir=""
   fi
-  local modelfile_name="${MODEL_NAME/:/-}-custom.modelfile"
+  local modelfile_name="${CUSTOM_MODEL_NAME/:/-}.modelfile"
   [[ -n "$script_dir" && -f "${script_dir}/ollama/${modelfile_name}" ]] && \
     external_modelfile="${script_dir}/ollama/${modelfile_name}"
 
@@ -4641,16 +4679,19 @@ EOF
 
   local create_result=0
   spinner_start "$(msg "$MSG_CUSTOM_CREATING" "$CUSTOM_MODEL_NAME")"
-  run_with_timeout 120 ollama create "${CUSTOM_MODEL_NAME}" -f "${modelfile}" || create_result=$?
+  run_with_timeout "$TIMEOUT_MODEL_CREATE" ollama create "${CUSTOM_MODEL_NAME}" -f "${modelfile}" || create_result=$?
   spinner_stop
 
+  # Kein stiller Erfolg: Ohne Hablará-Modell kann die App Ollama nicht nutzen (Incident 003)
   if [[ $create_result -eq 124 ]]; then
-    log_warning "${MSG_CUSTOM_CREATE_TIMEOUT}"
-    return 0
+    log_error "$(msg "$MSG_CUSTOM_CREATE_TIMEOUT" "$TIMEOUT_MODEL_CREATE")"
+    log_info "$(msg "$MSG_CUSTOM_UNAVAILABLE" "$CUSTOM_MODEL_NAME")"
+    return 1
   fi
   if [[ $create_result -ne 0 ]]; then
-    log_warning "$(msg "$MSG_CUSTOM_CREATE_FAILED" "$action_verb")"
-    return 0
+    log_error "$(msg "$MSG_CUSTOM_CREATE_FAILED" "$action_verb")"
+    log_info "$(msg "$MSG_CUSTOM_UNAVAILABLE" "$CUSTOM_MODEL_NAME")"
+    return 1
   fi
 
   log_success "$(msg "$MSG_CUSTOM_DONE" "$action_verb" "$CUSTOM_MODEL_NAME")"
@@ -4704,7 +4745,7 @@ main() {
   preflight_checks
   install_ollama
   pull_base_model
-  create_custom_model
+  create_custom_model || exit 1
   verify_installation || exit 1
 
   echo ""
@@ -4724,7 +4765,7 @@ main() {
   echo ""
   echo -e "${COLOR_BLUE}${MSG_OLLAMA_CONFIG}${COLOR_RESET}"
   echo "${MSG_MODEL_LABEL}${final_model}"
-  echo "${MSG_BASE_URL_LABEL}http://localhost:11434"
+  echo "${MSG_BASE_URL_LABEL}${OLLAMA_API_URL}"
   echo ""
   echo -e "${COLOR_CYAN}${MSG_DOCS}${COLOR_RESET}"
   echo ""

@@ -197,13 +197,12 @@ curl http://localhost:11434/api/tags
 # Verfügbare Models prüfen
 ollama list
 
-# qwen2.5:3b herunterladen (Standard)
-ollama pull qwen2.5:3b
-
-# Custom Model erstellen (optional)
-cd /path/to/hablara  # Verzeichnis wo Hablara geklont wurde
-ollama create qwen2.5:3b-custom -f scripts/ollama/qwen2.5-3b-custom.modelfile
+# Standardmodell samt Hablará-Modell (qwen3:4b-custom) einrichten
+curl -fsSL https://raw.githubusercontent.com/fidpa/hablara-releases/main/scripts/setup-ollama-linux.sh | bash
 ```
+
+Hablará nutzt das Hablará-Modell `qwen3:4b-custom`, nicht das Basismodell. Das Setup-Skript lädt
+das Basismodell und legt das Hablará-Modell an; Details: [Ollama Setup](../reference/OLLAMA_SETUP.md).
 
 ---
 

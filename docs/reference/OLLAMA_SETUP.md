@@ -35,18 +35,21 @@ Ohne Flags startet ein interaktives Menü. Die Skriptsprache wird automatisch au
 
 | Variante | Modell | Download | Empfehlung |
 |----------|--------|----------|------------|
-| `1.5b` | qwen2.5:1.5b | ~1 GB | Minimale Hardware, eingeschränkte Analysequalität |
-| **`3b`** | **qwen2.5:3b** | **~2 GB** | **Standard — läuft auf fast jeder Hardware** |
-| `7b` | qwen2.5:7b | ~4.7 GB | Bessere Qualität, empfohlen ab 16 GB RAM |
-| `qwen3-8b` | qwen3:8b | ~5.2 GB | Premium — höchste Qualität, empfohlen ab 16 GB RAM |
+| `1.5b` | qwen2.5:1.5b | ~1 GB | Schwache Hardware (unter 150 GB/s Speicherbandbreite); eingeschränkte Genauigkeit, die App weist bei Fehlschluss-Erkennung und Transaktionsanalyse darauf hin |
+| **`qwen3-4b`** | **qwen3:4b-thinking-2507-q4_K_M** | **~2,5 GB** | **Standard, empfohlen ab 150 GB/s Speicherbandbreite** |
+| `7b` | qwen2.5:7b | ~4,7 GB | Höhere Genauigkeit, empfohlen ab 300 GB/s |
+| `qwen3-8b` | qwen3:8b | ~5,2 GB | Premium, empfohlen ab 500 GB/s |
+| `3b` | qwen2.5:3b | ~2 GB | Legacy: nicht mehr angeboten, weil das Basismodell unter einer nicht kommerziellen Lizenz steht (Qwen Research License). Bestehende Installationen laufen weiter |
 
-Das Setup erstellt zusätzlich ein `*-custom` Modell (z.B. `qwen2.5:3b-custom`) mit optimierten Parametern für Hablará (reduzierter Context, Temperature 0.3).
+Das Skript misst die Speicherbandbreite und markiert die passende Variante im Menü mit `★`, nach denselben Stufen wie die App. Unter 50 GB/s empfiehlt es zusätzlich einen Cloud-Anbieter. Ohne Terminal (etwa per Pipe ohne TTY) installiert es den Standard.
+
+Das Setup erstellt zusätzlich ein `*-custom` Modell (z.B. `qwen3:4b-custom`) mit optimierten Parametern für Hablará (reduzierter Context, Temperature 0.3).
 
 ## Beispiele
 
 ```bash
-# 3b-Variante installieren (Standard)
-./setup-ollama-mac.sh --model 3b
+# Standardmodell installieren
+./setup-ollama-mac.sh --model qwen3-4b
 
 # Premium-Variante installieren
 ./setup-ollama-mac.sh --model qwen3-8b
@@ -68,7 +71,7 @@ Das Setup erstellt zusätzlich ein `*-custom` Modell (z.B. `qwen2.5:3b-custom`) 
 ./setup-ollama-mac.sh --model qwen3-8b
 
 # Via Pipe mit Argument
-curl -fsSL URL | bash -s -- --model 3b
+curl -fsSL URL | bash -s -- --model qwen3-4b
 curl -fsSL URL | bash -s -- --lang de
 ```
 
@@ -109,17 +112,17 @@ Ollama:
   GPU:          Apple Silicon (Metal)
 
 Hablará-Modelle:
-    qwen2.5:3b          2.0 GB  ✓
-    qwen2.5:3b-custom   2.0 GB  ✓ (antwortet)
+    qwen3:4b-thinking-2507-q4_K_M 2.5 GB  ✓
+    qwen3:4b-custom     2.5 GB  ✓ (antwortet)
 
-Speicher (Hablará):  ~4.0 GB
+Speicher (Hablará):  ~5.0 GB
 
 Ollama-Log (letzte Fehler):
     [keine Fehler gefunden]
 
 ---
 Erstellt: 2026-03-25 14:30:12
-Script:   setup-ollama-mac.sh v1.4.2
+Script:   setup-ollama-mac.sh v1.8.1
 ```
 
 Der Report enthält keine ANSI-Farben — direkt in GitHub Issues einfügbar.
@@ -153,14 +156,9 @@ Interaktives Menü zum Entfernen installierter Hablará-Varianten. Löscht jewei
 Nach dem Setup in Hablará einstellen:
 
 - **Provider:** Ollama
-- **Modell:** `qwen2.5:3b-custom` (oder gewählte Variante + `-custom`)
+- **Modell:** `qwen3:4b-custom` (oder gewählte Variante + `-custom`)
 - **Base URL:** `http://localhost:11434`
 
 ## Hinweis: Auto-generierte Scripts
 
-Die Skriptdateien (`setup-ollama-mac.sh`, `setup-ollama-linux.sh`, `setup-ollama-win.ps1`) werden automatisch generiert. Übersetzungen und inhaltliche Änderungen gehören in `scripts/i18n/`, nicht direkt in die Skriptdateien:
-
-```bash
-# Nach Änderungen in scripts/i18n/:
-pnpm run build:setup-scripts
-```
+Die Skriptdateien (`setup-ollama-mac.sh`, `setup-ollama-linux.sh`, `setup-ollama-win.ps1`) werden aus Vorlagen erzeugt und hier nur veröffentlicht. Änderungen an den Dateien in diesem Repository gehen beim nächsten Abgleich verloren; Fehler und Wünsche bitte als [Issue](https://github.com/fidpa/hablara-releases/issues) melden.

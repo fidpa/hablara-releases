@@ -8,7 +8,7 @@ Wie Sie Ihre Aufnahmen speichern, organisieren und exportieren.
 
 **Standard:** Aktiviert
 
-Alle Aufnahmen werden automatisch gespeichert mit vollständigen Metadaten.
+Alle Aufnahmen werden automatisch gespeichert mit vollständigen Metadaten, ebenso importierte Texte und Audiodateien. Von einem Text-Import gibt es keine Audiodatei, gespeichert wird nur die Metadaten-Datei (JSON).
 
 ### Speicherpfade nach Plattform
 
@@ -24,7 +24,7 @@ Alle Aufnahmen werden automatisch gespeichert mit vollständigen Metadaten.
 **Beispiel-Struktur:**
 ```
 recordings/
-├── 2026-01-25_20-30-45_a1b2c3d4.wav   # 16kHz Mono WAV
+├── 2026-01-25_20-30-45_a1b2c3d4.wav   # 16kHz Mono WAV (nicht bei Text-Importen)
 └── 2026-01-25_20-30-45_a1b2c3d4.json  # Metadaten
 ```
 
@@ -60,9 +60,9 @@ recordings/
 
 | Button | Aktion | Beschreibung |
 |--------|--------|--------------|
-| ▶️ Play | Playback | Aufnahme abspielen |
-| ⬇️ Download | WAV-Export | Native Save Dialog |
-| 🗑️ Delete | Löschen | Entfernt WAV + Metadaten |
+| ▶️ Play | Playback | Aufnahme abspielen (nur mit Audio) |
+| ⬇️ Download | WAV-Export | Native Save Dialog (nur mit Audio) |
+| 🗑️ Delete | Löschen | Entfernt Audio (falls vorhanden) und Metadaten |
 | 📄 Expand | Details | VAD-Stats, Processing Time |
 
 ---

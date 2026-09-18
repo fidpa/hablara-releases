@@ -14,15 +14,16 @@ Schnelle Lösungen für die 16 häufigsten Probleme.
 ollama serve
 
 # Model herunterladen
-ollama pull qwen2.5:3b
+ollama pull qwen3:4b-thinking-2507-q4_K_M
 ```
 
-> **Hinweis:** Das Setup-Skript von Hablará erstellt automatisch ein `qwen2.5:3b-custom` Modell
+> **Hinweis:** Das Setup-Skript von Hablará erstellt automatisch ein `qwen3:4b-custom` Modell
 > mit optimierten Parametern (Temperature 0.3, reduzierter Kontext). Hablará nutzt intern
-> `qwen2.5:3b-custom`, nicht das Basis-Modell. Wer das Skript nicht genutzt hat: einmal
-> `scripts/setup-ollama-mac.sh` (macOS/Linux) bzw. `setup-ollama-win.ps1` (Windows) ausführen.
+> `qwen3:4b-custom`, nicht das Basis-Modell. Wer das Skript nicht genutzt hat: einmal
+> `setup-ollama-mac.sh` (macOS), `setup-ollama-linux.sh` (Linux) bzw. `setup-ollama-win.ps1`
+> (Windows) ausführen, siehe [Ollama Setup](../reference/OLLAMA_SETUP.md).
 
-**Alternative:** Cloud-LLM verwenden (Settings → KI-Modelle → OpenAI/Anthropic)
+**Alternative:** Cloud-LLM verwenden (Settings → KI-Modelle → OpenAI/Anthropic/Mistral)
 
 ---
 
@@ -127,9 +128,9 @@ ollama pull qwen2.5:3b
 
 2. **Model fehlt:**
    ```bash
-   ollama pull qwen2.5:3b
+   ollama pull qwen3:4b-thinking-2507-q4_K_M
    ```
-   Danach Setup-Skript ausführen, damit `qwen2.5:3b-custom` erstellt wird
+   Danach Setup-Skript ausführen, damit `qwen3:4b-custom` erstellt wird
    (das ist das Modell, das Hablará tatsächlich nutzt).
 
 3. **Cloud-LLM ohne API Key:**
@@ -350,7 +351,7 @@ in dieser Analyse nur etwa einen bestimmten Prozentsatz.
 **Ursache:** Der Hinweis stammt aus einer Messung mit 10 Testtexten je Sprache und
 20 Durchläufen. Er bedeutet: Das Modell antwortet zuverlässig in der richtigen Form, wählt
 aber oft die falsche Kategorie. Betroffen ist heute nur das kleinste Modell
-`qwen2.5:1.5b-custom`, dort bei der Fehlschluss-Erkennung und der Transaktionsanalyse.
+`qwen2.5:1.5b-custom`, dort bei der Fehlschluss-Erkennung (etwa 21 %) und der Transaktionsanalyse (etwa 46 %).
 
 **Lösung:**
 
