@@ -39,7 +39,8 @@ Ohne Flags startet ein interaktives Menü. Die Skriptsprache wird automatisch au
 | **`qwen3-4b`** | **qwen3:4b-thinking-2507-q4_K_M** | **~2,5 GB** | **Standard, empfohlen ab 150 GB/s Speicherbandbreite** |
 | `7b` | qwen2.5:7b | ~4,7 GB | Höhere Genauigkeit, empfohlen ab 300 GB/s |
 | `qwen3-8b` | qwen3:8b | ~5,2 GB | Premium, empfohlen ab 500 GB/s |
-| `3b` | qwen2.5:3b | ~2 GB | Legacy: nicht mehr angeboten, weil das Basismodell unter einer nicht kommerziellen Lizenz steht (Qwen Research License). Bestehende Installationen laufen weiter |
+
+Die frühere Variante `3b` (qwen2.5:3b, nicht kommerzielle Lizenz) unterstützen Skript und App seit Skriptversion 1.8.2 nicht mehr; die App wechselt gespeicherte Einstellungen beim Start auf das Standardmodell. Ein vorhandenes Modell lässt sich bei Bedarf mit `ollama rm qwen2.5:3b-custom` und `ollama rm qwen2.5:3b` entfernen.
 
 Das Skript misst die Speicherbandbreite und markiert die passende Variante im Menü mit `★`, nach denselben Stufen wie die App. Unter 50 GB/s empfiehlt es zusätzlich einen Cloud-Anbieter. Ohne Terminal (etwa per Pipe ohne TTY) installiert es den Standard.
 
@@ -122,7 +123,7 @@ Ollama-Log (letzte Fehler):
 
 ---
 Erstellt: 2026-03-25 14:30:12
-Script:   setup-ollama-mac.sh v1.8.1
+Script:   setup-ollama-mac.sh v1.8.2
 ```
 
 Der Report enthält keine ANSI-Farben — direkt in GitHub Issues einfügbar.

@@ -23,7 +23,7 @@ fi
 # Configuration
 # ============================================================================
 
-readonly SCRIPT_VERSION="1.8.1"
+readonly SCRIPT_VERSION="1.8.2"
 
 # API-URL aus OLLAMA_HOST ableiten, damit curl-Prüfungen und die ollama-CLI denselben Server sehen.
 # Formate wie bei Ollama: "host:port", "http://host:port", "host" (Port 11434), "https://host" (443).
@@ -75,7 +75,6 @@ get_model_config() {
   case "${1:-}" in
     1.5b)     echo "qwen2.5:1.5b|~1GB|3|" ;;
     qwen3-4b) echo "qwen3:4b-thinking-2507-q4_K_M|~2.5GB|5||qwen3:4b-custom" ;;
-    3b)       echo "qwen2.5:3b|~2GB|5|" ;;   # Legacy: nicht mehr angeboten, aber weiter nutzbar
     7b)       echo "qwen2.5:7b|~4.7GB|10|" ;;
     qwen3-8b) echo "qwen3:8b|~5.2GB|8|" ;;
     *)        return 1 ;;
@@ -3237,7 +3236,6 @@ estimate_toks_per_sec() {
   case "$model" in
     1.5b)       size_gb_x10=10; factor=6 ;;
     qwen3-4b)   size_gb_x10=25; factor=6 ;;
-    3b)         size_gb_x10=19; factor=7 ;;
     7b)         size_gb_x10=47; factor=8 ;;
     qwen3-8b)   size_gb_x10=52; factor=8 ;;
     *)          size_gb_x10=20; factor=6 ;;
@@ -3638,7 +3636,7 @@ run_status_check() {
   # `ollama list` braucht den Server; ohne ihn wartet die CLI ~5 s je Aufruf, 8 Aufrufe = 40 s für leere Listen
   local base_models_found=()
   local variant
-  for variant in qwen3-8b 7b qwen3-4b 3b 1.5b; do
+  for variant in qwen3-8b 7b qwen3-4b 1.5b; do
     [[ "$server_reachable" == "true" ]] || break
     local config_line
     config_line=$(get_model_config "$variant") || continue
@@ -3662,7 +3660,7 @@ run_status_check() {
 
   # 5. Custom models present? (scan all variants, largest first)
   local custom_models_found=()
-  for variant in qwen3-8b 7b qwen3-4b 3b 1.5b; do
+  for variant in qwen3-8b 7b qwen3-4b 1.5b; do
     [[ "$server_reachable" == "true" ]] || break
     local config_line
     config_line=$(get_model_config "$variant") || continue
@@ -3693,8 +3691,8 @@ run_status_check() {
   fi
 
   # 6. Model inference works? (use smallest model for fastest check)
-  # Explicit priority: 1.5b > qwen3-4b > 3b > 7b > qwen3-8b (smallest = fastest)
-  local model_priority=(1.5b qwen3-4b 3b 7b qwen3-8b)
+  # Explicit priority: 1.5b > qwen3-4b > 7b > qwen3-8b (smallest = fastest)
+  local model_priority=(1.5b qwen3-4b 7b qwen3-8b)
   local test_model=""
 
   # Try custom models first
@@ -3849,7 +3847,7 @@ run_diagnose_report() {
   fi
   if [[ -n "$ollama_list" ]]; then
     local variant
-    for variant in qwen3-8b 7b qwen3-4b 3b 1.5b; do
+    for variant in qwen3-8b 7b qwen3-4b 1.5b; do
       local config_line
       config_line=$(get_model_config "$variant") || continue
       local model_name="${config_line%%|*}"
@@ -4003,7 +4001,7 @@ run_cleanup() {
   # Discover installed Hablará variants
   local variants=() variant_labels=()
   local variant
-  for variant in 1.5b qwen3-4b 3b 7b qwen3-8b; do
+  for variant in 1.5b qwen3-4b 7b qwen3-8b; do
     local config_line
     config_line=$(get_model_config "$variant") || continue
     local model_name="${config_line%%|*}"
@@ -4083,7 +4081,7 @@ run_cleanup() {
 
   # Check if any Hablará models remain
   local remaining=false
-  for variant in 1.5b qwen3-4b 3b 7b qwen3-8b; do
+  for variant in 1.5b qwen3-4b 7b qwen3-8b; do
     local config_line
     config_line=$(get_model_config "$variant") || continue
     local model_name="${config_line%%|*}"

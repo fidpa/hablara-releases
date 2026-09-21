@@ -210,7 +210,7 @@ prompt_language = "de"       # de | en
 
 [ollama]
 base_url = "http://127.0.0.1:11434"
-model = "qwen2.5:3b-custom"
+model = "qwen3:4b-custom"
 
 [openai]
 model = "gpt-4o-mini"
@@ -259,7 +259,7 @@ Ein Objekt je Datei. `meta` ist immer dabei, damit sich ein Ergebnis reproduzier
       "cliVersion": "1.7.6",
       "createdAt": "2026-09-13T18:58:23Z",
       "provider": "ollama",
-      "model": "qwen2.5:3b-custom",
+      "model": "qwen3:4b-custom",
       "promptLanguage": "de",
       "whisperModel": "german-turbo-q8_0",
       "language": "de"

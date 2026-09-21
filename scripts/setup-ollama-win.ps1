@@ -22,7 +22,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('1.5b', 'qwen3-4b', '3b', '7b', 'qwen3-8b')]
+    [ValidateSet('1.5b', 'qwen3-4b', '7b', 'qwen3-8b')]
     [string]$Model,
 
     [switch]$Update,
@@ -68,7 +68,7 @@ trap {
 # Configuration
 # ============================================================================
 
-$ScriptVersion = '1.8.1'
+$ScriptVersion = '1.8.2'
 $OllamaApiUrl = 'http://localhost:11434'
 $MinOllamaVersion = '0.3.0'
 # Timeout für `ollama create` (Sekunden). Wird auch in die Meldung CustomCreateTO eingesetzt.
@@ -89,7 +89,6 @@ $script:RecommendedModel = ''
 $ModelConfigs = @{
     '1.5b'    = @{ Name = 'qwen2.5:1.5b'; Size = '~1GB';   DiskGB = 3;  RAMWarn = $false; MinRAM = 0 }
     'qwen3-4b' = @{ Name = 'qwen3:4b-thinking-2507-q4_K_M'; Size = '~2.5GB'; DiskGB = 5; RAMWarn = $false; MinRAM = 0; CustomName = 'qwen3:4b-custom' }
-    '3b'      = @{ Name = 'qwen2.5:3b';   Size = '~2GB';   DiskGB = 5;  RAMWarn = $false; MinRAM = 0 }
     '7b'      = @{ Name = 'qwen2.5:7b';   Size = '~4.7GB'; DiskGB = 10; RAMWarn = $false; MinRAM = 0 }
     'qwen3-8b' = @{ Name = 'qwen3:8b';   Size = '~5.2GB'; DiskGB = 8;  RAMWarn = $false; MinRAM = 0 }
 }
@@ -2723,7 +2722,6 @@ function Get-EstimatedToksPerSec {
     $sizeX10, $factor = switch ($Model) {
         '1.5b'     { 10, 6 }
         'qwen3-4b' { 25, 6 }
-        '3b'       { 19, 7 }
         '7b'       { 47, 8 }
         'qwen3-8b' { 52, 8 }
         default    { 20, 6 }
@@ -3162,7 +3160,7 @@ function Invoke-StatusCheck {
 
     # 4. Base models present? (scan all variants, largest first)
     $baseModelsFound = @()
-    foreach ($variant in @('qwen3-8b', '7b', 'qwen3-4b', '3b', '1.5b')) {
+    foreach ($variant in @('qwen3-8b', '7b', 'qwen3-4b', '1.5b')) {
         if (-not $ModelConfigs.ContainsKey($variant)) { continue }
         $modelName = $ModelConfigs[$variant].Name
         if (Test-OllamaModelExists $modelName) { $baseModelsFound += $modelName }
@@ -3182,7 +3180,7 @@ function Invoke-StatusCheck {
 
     # 5. Custom models present? (scan all variants, largest first)
     $customModelsFound = @()
-    foreach ($variant in @('qwen3-8b', '7b', 'qwen3-4b', '3b', '1.5b')) {
+    foreach ($variant in @('qwen3-8b', '7b', 'qwen3-4b', '1.5b')) {
         if (-not $ModelConfigs.ContainsKey($variant)) { continue }
         $modelName = Get-CustomModelName -Config $ModelConfigs[$variant]
         if (Test-OllamaModelExists $modelName) { $customModelsFound += $modelName }
@@ -3207,8 +3205,8 @@ function Invoke-StatusCheck {
     }
 
     # 6. Model inference works? (use smallest model for fastest check)
-    # Explicit priority: 1.5b > qwen3-4b > 3b > 7b > qwen3-8b (smallest = fastest)
-    $modelPriority = @('1.5b', 'qwen3-4b', '3b', '7b', 'qwen3-8b')
+    # Explicit priority: 1.5b > qwen3-4b > 7b > qwen3-8b (smallest = fastest)
+    $modelPriority = @('1.5b', 'qwen3-4b', '7b', 'qwen3-8b')
     $testModel = $null
     foreach ($prio in $modelPriority) {
         if (-not $ModelConfigs.ContainsKey($prio)) { continue }
@@ -3349,7 +3347,7 @@ function Invoke-DiagnoseReport {
     }
 
     if ($ollamaAvailable -and $ollamaList) {
-        foreach ($variant in @('qwen3-8b', '7b', 'qwen3-4b', '3b', '1.5b')) {
+        foreach ($variant in @('qwen3-8b', '7b', 'qwen3-4b', '1.5b')) {
             if (-not $ModelConfigs.ContainsKey($variant)) { continue }
             $modelName = $ModelConfigs[$variant].Name
             $customName = Get-CustomModelName -Config $ModelConfigs[$variant]
@@ -3509,7 +3507,7 @@ function Invoke-Cleanup {
 
     # Discover installed Hablará variants
     $variants = @()
-    foreach ($variant in @('1.5b', 'qwen3-4b', '3b', '7b', 'qwen3-8b')) {
+    foreach ($variant in @('1.5b', 'qwen3-4b', '7b', 'qwen3-8b')) {
         if (-not $ModelConfigs.ContainsKey($variant)) { continue }
         $modelName = $ModelConfigs[$variant].Name
         $customName = Get-CustomModelName -Config $ModelConfigs[$variant]
@@ -3584,7 +3582,7 @@ function Invoke-Cleanup {
 
     # Check if any Hablará models remain
     $remaining = $false
-    foreach ($variant in @('1.5b', 'qwen3-4b', '3b', '7b', 'qwen3-8b')) {
+    foreach ($variant in @('1.5b', 'qwen3-4b', '7b', 'qwen3-8b')) {
         if (-not $ModelConfigs.ContainsKey($variant)) { continue }
         $modelName = $ModelConfigs[$variant].Name
         if ((Test-OllamaModelExists $modelName) -or (Test-OllamaModelExists (Get-CustomModelName -Config $ModelConfigs[$variant]))) {
