@@ -12,7 +12,6 @@
 [![Snap Store](https://img.shields.io/badge/Snap%20Store-Available-E95420?logo=snapcraft)](https://snapcraft.io/hablara)
 [![Stack](https://img.shields.io/badge/stack-Tauri%202.0%20%7C%20Next.js%2014%20%7C%20Rust%201.77+-blue.svg)](https://tauri.app/)
 [![Homebrew](https://img.shields.io/badge/homebrew-tap-orange?logo=homebrew)](https://github.com/fidpa/homebrew-hablara)
-[![Chocolatey](https://img.shields.io/chocolatey/v/hablara-free?logo=chocolatey)](https://community.chocolatey.org/packages/hablara-free)
 [![Languages](https://img.shields.io/badge/i18n-15%20languages-blue.svg)](https://github.com/fidpa/hablara#funktionen)
 
 Desktop-App für Selbstreflexion mit Spracherkennung und KI-gestützter Sprachanalyse.
@@ -263,20 +262,20 @@ sudo snap connect hablara:audio-record
 - Automatische Updates über den Store
 - Keine SmartScreen-Warnung
 
-#### Chocolatey
+#### winget
 
 ```powershell
-choco install hablara-free
+winget install Fidpa.Hablara
 ```
 
-Automatische Updates via `choco upgrade hablara-free`.
+Updates über die App selbst oder `winget upgrade Fidpa.Hablara`.
 
 #### Direct Distribution
 
-**Download:** [GitHub Releases][releases] – NSIS Installer (~160 MB) | MSI (~160 MB)
+**Download:** [GitHub Releases][releases] (NSIS Installer, ~160 MB)
 
 #### 1️⃣ Hablará installieren
-- `.exe` oder `.msi` herunterladen und ausführen
+- `.exe` herunterladen und ausführen
 - **Windows Defender SmartScreen:** "Weitere Informationen" → "Trotzdem ausführen"
   _(App ist nicht signiert – [Warum? Ist das sicher?](docs/guides/FAQ.md#13-windows-smartscreen-warnung))_
 
